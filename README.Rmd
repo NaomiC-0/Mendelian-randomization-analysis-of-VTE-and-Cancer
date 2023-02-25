@@ -2,7 +2,7 @@
 
 Set libraries and generic functions
 
-```{r}
+```r
 library(data.table)
 library(TwoSampleMR)
 library(ieugwasr)
