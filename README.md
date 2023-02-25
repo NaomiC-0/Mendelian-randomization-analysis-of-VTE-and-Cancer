@@ -54,13 +54,14 @@ clump_data()
 fwrite(VTE_exp_dat, 'VTE_exp_dat.csv', row.names =F)
 
 # load cancer outcome data (EXAMPLE ONLY)
-fread('path/to/cancer1/GWAS_summ_stats') %>%
+cancer_outcomes <- fread('path/to/cancer1/GWAS_summ_stats') %>%
 # rename all columns to correspond with the column names required for TwoSampleMR package
 # i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
 # format as outcome data using the TwoSampleMR package
-format_data(cancer1, type="outcome", snps = VTE_exp_dat$SNP) %>%
+format_data(cancer1, type="outcome", snps = VTE_exp_dat$SNP)
+
 # save the file
-fwrite(., 'cancer1_outcome_dat.csv', row.names=F)
+fwrite(cancer_outcomes, 'cancer1_outcome_dat.csv', row.names=F)
 ```
 
 ### Harmonise VTE exposure data and cancer outcome data
@@ -120,5 +121,26 @@ harmonised_dat_steigered <- harmonised_dat %>%
                                       FALSE, mr_keep)
 # save the file
 fwrite(harmonised_dat_steigered, 'harmonised_dat_steigered_VTE_to_cancer.csv'
+
+```
+
+### Summary of harmonised data
+
+To create Table 2: showing how many SNPs used for each VTE-cancer analysis
+
+``` r{table2}
+
+# 1) How many VTE SNPs were missing from the cancer summary data for each cancer
+outcomes <- cancer_outcomes %>% arrange(desc(samplesize.outcome)) %>% select(outcome) %>% distinct %>% unlist
+snps_unavailable <- list()
+for (i in outcomes) {
+  eachcancer <- cancer_outcomes %>% filter(outcome == i)
+  # for each cancer how many VTE SNPs are not available
+  n_snp <- VTE_exp_dat %>% filter(SNP %!in% eachcancer$SNP) %>% count
+  outcome <- i
+  snps_unavailable[[i]] <- cbind(outcome, n_snp)
+  }
+snps_unavailable <- do.call(rbind, snps_unavailable) %>% rename('snps_unavailable' = 'n')
+
 
 ```
