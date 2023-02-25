@@ -30,7 +30,7 @@ generate_odds_ratios <- function(res) {
 ## MR analysis of genetic risk of VTE (exposure) and 18 cancers (outcomes)
 
 ### Format data
-European ancestry VTE exposure summary data was obtained from the VTE GWAS meta-analysis by (Thibord _et al_, 2022) [https://pubmed.ncbi.nlm.nih.gov/36154123/]
+European ancestry VTE exposure summary data was obtained from the VTE GWAS meta-analysis by (Thibord _et al_, 2022)[https://pubmed.ncbi.nlm.nih.gov/36154123/]
 Independent European ancestry VTE risk loci are found in supplementary table 2 of this paper
 
 Cancer outcome data for each cancer was obtained from a variety of sources (see data availability supplement)
@@ -48,12 +48,13 @@ format_data(VTE_exp_dat, type="exposure")
 # clump the data using stringent MR thresholds of r2 = 0.001 in 10,000kb window to ensure all SNPs are independent
 # note this function uses EUR ancestry reference panels accessible via: https://mrcieu.github.io/gwasvcf/index.html
 # not all of the VTE SNPs are present in the reference panel. Those SNPs which were absent were excluded
-clump_data() %>%
+clump_data()
+
 # save the file
-fwrite(., 'VTE_exp_dat.csv', row.names =F)
+fwrite(VTE_exp_dat, 'VTE_exp_dat.csv', row.names =F)
 
 # load cancer outcome data (EXAMPLE ONLY)
-cancer1 <- fread('path/to/cancer1/GWAS_summ_stats') %>%
+fread('path/to/cancer1/GWAS_summ_stats') %>%
 # rename all columns to correspond with the column names required for TwoSampleMR package
 # i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
 # format as outcome data using the TwoSampleMR package
@@ -84,12 +85,13 @@ oes <- cancer_outcomes %>% filter(outcome == 'Oesophageal cancer') %>%
 harmonise_data(exposure_dat = VTE_exp_dat, outcome_dat = ., action = 1)
 
 # for all other cancers harmonise data using the default (action = 2) which uses effect allele frequencies to resolve ambiguous/palindromic SNPs 
-dat <- cancer_outcomes %>% filter(outcome != 'Glioma' & outcome != 'Oesophageal cancer') %>% 
+harmonised_dat <- cancer_outcomes %>% filter(outcome != 'Glioma' & outcome != 'Oesophageal cancer') %>% 
 harmonise_data(exposure_dat = VTE_exp_dat, outcome_dat = ., action =2) %>%
 # create a single dataframe including the harmonised oesophageal cancer and glioma data
-rbind(., glioma, oes) %>%
+rbind(., glioma, oes)
+
 # save
-fwrite(., 'harmonised_dat_VTE_to_cancer.csv', row.names = F)
+fwrite(harmonised_dat, 'harmonised_dat_VTE_to_cancer.csv', row.names = F)
 
 ```
 ### Steiger-filtering
@@ -99,7 +101,24 @@ Here I have used Steiger-filtering to exclude SNPs which explain more variance i
 This function requires prevalence estimates for each outcome and exposure in order to estimate the r2 for each SNP 
 (or alternatively it defaults to a prevalence of 0.1 - the same results were obtained in a sensitivity analysis where the default prevalence setting was used)
 
-European prevalence data for each cancer was obtained from the (International Agency for Reseach on Cancer website) [https://gco.iarc.fr/today/online-analysis-table?v=2020&mode=cancer&mode_population=continents&population=900&populations=908&key=asr&sex=0&cancer=39&type=0&statistic=5&prevalence=0&population_group=0&ages_group%5B%5D=0&ages_group%5B%5D=17&group_cancer=0&include_nmsc=0&include_nmsc_other=1]
+European prevalence data for each cancer was obtained from the (International Agency for Reseach on Cancer website)[https://gco.iarc.fr/today/online-analysis-table?v=2020&mode=cancer&mode_population=continents&population=900&populations=908&key=asr&sex=0&cancer=39&type=0&statistic=5&prevalence=0&population_group=0&ages_group%5B%5D=0&ages_group%5B%5D=17&group_cancer=0&include_nmsc=0&include_nmsc_other=1]
 
 ``` r{steiger_filtering}
 
+# first set units columns so the function will work
+harmonised_dat_steigered <- harmonised_dat %>% 
+                      mutate(units.exposure = 'log odds',
+                      units.outcome = 'log odds') %>%
+# the function also requires effect allele frequencies 
+#Glioma and Oesophageal cancer datasets did not have effect allele frequencies available (so missing eaf.outcome. Since the data has already been harmonised and palindromic SNPs discarded as appropriate, I will approximate the eafs for these cancers using the VTE (outcome effect allele frequencies - eaf.exposure)
+                    mutate(eaf.outcome = ifelse(is.na(eaf.outcome), eaf.exposure, 
+                           eaf.outcome) %>%
+# perform the Steiger filtering
+                    steiger_filtering %>%
+# for the Steiger 'FALSE' SNPs (where r2.outcome > r2.exposure), change mr_keep to FALSE to exclude from the analysis
+                    mutate(mr_keep = ifelse(steiger_dir == F,
+                                      FALSE, mr_keep)
+# save the file
+fwrite(harmonised_dat_steigered, 'harmonised_dat_steigered_VTE_to_cancer.csv'
+
+```
