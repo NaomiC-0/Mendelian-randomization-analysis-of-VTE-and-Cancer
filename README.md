@@ -56,6 +56,7 @@ fwrite(., 'VTE_exp_dat.csv', row.names =F)
 cancer1 <- fread('path/to/cancer1/GWAS_summ_stats') %>%
 # rename all columns to correspond with the column names required for TwoSampleMR package
 # i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
+# format as outcome data using the TwoSampleMR package
 format_data(cancer1, type="outcome", snps = VTE_exp_dat$SNP) %>%
 # save the file
 fwrite(., 'cancer1_outcome_dat.csv', row.names=F)
@@ -91,4 +92,14 @@ rbind(., glioma, oes) %>%
 fwrite(., 'harmonised_dat_VTE_to_cancer.csv', row.names = F)
 
 ```
+### Steiger-filtering
+
+Here I have used Steiger-filtering to exclude SNPs which explain more variance in the outcome (r2.outcome) than the exposure (r2.exposure) ans these SNPs are likely to be invalid instruments (which either act through horizontal pleiotropy or proxy a reverse causal pathway from outcome to exposure)
+
+This function requires prevalence estimates for each outcome and exposure in order to estimate the r2 for each SNP 
+(or alternatively it defaults to a prevalence of 0.1 - the same results were obtained in a sensitivity analysis where the default prevalence setting was used)
+
+European prevalence data for each cancer was obtained from the (International Agency for Reseach on Cancer website) [https://gco.iarc.fr/today/online-analysis-table?v=2020&mode=cancer&mode_population=continents&population=900&populations=908&key=asr&sex=0&cancer=39&type=0&statistic=5&prevalence=0&population_group=0&ages_group%5B%5D=0&ages_group%5B%5D=17&group_cancer=0&include_nmsc=0&include_nmsc_other=1]
+
+``` r{steiger_filtering}
 
