@@ -43,6 +43,8 @@ VTE_exp_dat <- fread('path/to/VTE/GWAS_summ_stats') %>%
 # i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
 # check that all SNPs are associated with VTE at GWAS significant pvalue of p=5e-8 and arrange by pval
 filter(pval<=5e-8) %>% arrange(.,(pval)) %>%
+# format as exposure data using TwoSampleMR package
+format_data(VTE_exp_dat, type="exposure") 
 # clump the data using stringent MR thresholds of r2 = 0.001 in 10,000kb window to ensure all SNPs are independent
 # note this function uses EUR ancestry reference panels accessible via: https://mrcieu.github.io/gwasvcf/index.html
 # not all of the VTE SNPs are present in the reference panel. Those SNPs which were absent were excluded
@@ -50,4 +52,43 @@ clump_data() %>%
 # save the file
 fwrite(., 'VTE_exp_dat.csv', row.names =F)
 
+# load cancer outcome data (EXAMPLE ONLY)
+cancer1 <- fread('path/to/cancer1/GWAS_summ_stats') %>%
+# rename all columns to correspond with the column names required for TwoSampleMR package
+# i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
+format_data(cancer1, type="outcome", snps = VTE_exp_dat$SNP) %>%
+# save the file
+fwrite(., 'cancer1_outcome_dat.csv', row.names=F)
 ```
+
+### Harmonise VTE exposure data and cancer outcome data
+
+``` r{harmonise_data}
+
+# read in the exposure and outcome data
+
+VTE_exp_dat <- fread('VTE_exp_dat.csv')
+# to read in all the cancer_outcome_dat files and unify into a single dataframe
+cancer_outcomes <- list.files(pattern = "*outcome_dat.csv") %>%
+lapply(., fread) %>% reduce(full_join)
+
+# Glioma and Oesophageal cancer have missing eafs which makes harmonisation of palindromic SNPs more difficult
+
+glioma <- cancer_outcomes %>% filter(outcome == 'Glioma') %>%
+# for glioma the coding strand is not consistent for all SNPs therefore all palindromic SNPs will be excluded (i.e. action = 3 with the harmonise-data function)
+harmonise_data(exposure_dat = VTE_exp_dat, outcome_dat = glioma, action = 3)
+
+oes <- cancer_outcomes %>% filter(outcome == 'Oesophageal cancer') %>%
+# for oesophageal cancer I confirmed with study authors that all SNPs are on the 5' strand (which is the same for the VTE data), therefore palindromic SNPs can be retained (i.e. action = 1 with the harmonise_data function)
+harmonise_data(exposure_dat = VTE_exp_dat, outcome_dat = ., action = 1)
+
+# for all other cancers harmonise data using the default (action = 2) which uses effect allele frequencies to resolve ambiguous/palindromic SNPs 
+dat <- cancer_outcomes %>% filter(outcome != 'Glioma' & outcome != 'Oesophageal cancer') %>% 
+harmonise_data(exposure_dat = VTE_exp_dat, outcome_dat = ., action =2) %>%
+# create a single dataframe including the harmonised oesophageal cancer and glioma data
+rbind(., glioma, oes) %>%
+# save
+fwrite(., 'harmonised_dat_VTE_to_cancer.csv', row.names = F)
+
+```
+
