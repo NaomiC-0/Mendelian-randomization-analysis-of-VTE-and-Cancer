@@ -130,8 +130,10 @@ To create Table 2: showing how many SNPs used for each VTE-cancer analysis
 
 ``` r{table2}
 
-# 1) How many VTE SNPs were missing from the cancer summary data for each cancer
+# create a vector of the individual cancer outcomes
 outcomes <- cancer_outcomes %>% arrange(desc(samplesize.outcome)) %>% select(outcome) %>% distinct %>% unlist
+
+# 1) How many VTE SNPs were missing from the cancer summary data for each cancer
 snps_unavailable <- list()
 for (i in outcomes) {
   eachcancer <- cancer_outcomes %>% filter(outcome == i)
@@ -142,5 +144,108 @@ for (i in outcomes) {
   }
 snps_unavailable <- do.call(rbind, snps_unavailable) %>% rename('snps_unavailable' = 'n')
 
-
+# 2) How many VTE SNPs are excluded from each VTE-cancer analysis after harmonisation due to either an ambiguous coding strand (palindromic SNPs which could not be resolved) or Steiger-filtering
+snps_excluded <- list()
+for (i in outcomes) {
+  n_snp <- dat_steigerfiltered %>% filter(outcome == i) %>% filter(mr_keep == F) %>% count
+  outcome <- i
+  snps_excluded[[i]] <- cbind(outcome, n_snp)
+  }
+snps_excluded <- do.call(rbind, snps_excluded) %>% 
+  rename('total_snps_excluded' = 'n')
+  
+  # 3) How many VTE SNPs are used in each VTE-cancer analysis
+  snps_used <- list()
+for (i in outcomes) {
+  n_snp <- dat_steigerfiltered %>% filter(outcome == i) %>% filter(mr_keep == T) %>% count
+  outcome <- i
+  snps_used[[i]] <- cbind(outcome, n_snp)}
+snps_used <- do.call(rbind, snps_used) %>% 
+  rename('snps_used' = 'n')
+  
+  # create table 2
+  list(snps_unavailable, snps_excluded, snps_used) %>% reduce(full_join, by = 'outcome') %>% fwrite(., 'table2.csv')
+  
 ```
+
+### calculate F-statistic
+
+### Run the MR-IVW and sensitivity analyses
+
+``` r{results_VTE_to_cancer}
+
+results <- mr(harmonised_dat_steigered, method_list = c('mr_ivw', 'mr_egger_regression', 'mr_weighted_median', 'mr_weighted_mode')) %>%
+# convert logodds to OR and confidence intervals using the previously created function (see set_up chunk)
+  generate_odds_ratios %>%
+# add FDR pvalues  
+  mutate(FDR_pval = p.adjust(pval, method = 'fdr')) %>% 
+  mutate_if(is.numeric, ~round(., 4))
+
+# look at pleiotropy
+mr_pleiotropy <- mr_pleiotropy_test(harmonised_dat_steigered) %>% dplyr::select(exposure, outcome, egger_intercept, se, pval)
+
+# look at heterogeneity
+mr_heterogeneity <- mr_heterogeneity(
+  harmonised_dat_steigered,
+  parameters = default_parameters(),
+  method_list = subset(mr_method_list(), heterogeneity_test & use_by_default)$obj
+)
+
+# combined results from these three analyses are shown in supplementary table 2
+```
+
+### Graphs
+
+#### Forest plot of MR-IVW analysis
+
+``` r {forest_plot}
+# merge the MR results with the heterogeneity stats in order to forest plot them:
+res2<- left_join(results, mr_heterogeneity) %>%
+dplyr::select(outcome, method, OR, OR_lci95, OR_uci95, pval, FDR_pval, Q, Q_pval) %>% filter(method == 'Inverse variance weighted') %>% arrange(., pval) %>% 
+  as.list # not essential to convert to a list but allows the next line of code to work
+res2$length <- length(res2) # this allows me to plot the ilab headings on the graph
+
+forest(x=res2$OR, ci.lb = res2$OR_lci95, ci.ub = res2$OR_uci95, 
+       slab = res2$outcome, # label on left side
+       cex = 1.0, # text size
+       refline = 1.0, # line of null effect
+       main = 'MR-IVW analysis of effect of VTE (exposure) on cancer risk (outcome)', # title for the overall graph
+       header= c('Outcome', 'OR [95% CI]'),
+       textpos=c(0.40, 1.6), # position of annotations
+       ilab = cbind(format(round(res2$pval, digits=2), nsmall=2), format(round(res2$FDR_pval, digits=2), nsmall=2), formatC(res2$Q_pval, format = "e", digits = 1)), # extra annotations
+       ilab.xpos = c(1.65, 1.75, 1.9), # position for extra annotations
+       pch = 15, # shape of point
+       psize = 1.0, # size to plot the points
+       xlab = 'OR [95% CI] for cancer per log-odds increase in genetic risk of VTE',
+       xlim = c(0.38, 1.95))
+# to add labels for the ilabs
+text(c(1.65, 1.75, 1.9), res2$length+10,
+     c('P', 'FDR-P', 'het-P'), cex=1.0)
+par(cex.lab = 3)
+```
+
+#### Scatter plots (not shown in manuscript)
+
+``` r{scatter_plots}
+scatter_plots <- mr_scatter_plot(results, harmonised_dat_steigered)
+setwd('path/to/results')
+pdf("./VTE_to_cancer/scatterplots.pdf")
+for (i in 1:length(scatter_plots)) {print(scatter_plots[[i]])}
+dev.off()
+```
+
+#### Single SNP and funnel plots (supplementary figure ...)
+
+``` r{single_SNP_plots}
+res_single <- mr_singlesnp(harmonised_dat_steigered, all_method = 'mr_ivw')
+single_snp_plots <- mr_forest_plot(res_single)
+funnel_plots <- mr_funnel_plot(res_single)
+```
+
+#### Leave one out analysis
+
+``` r{leave_one_out}
+
+res_loo <- mr_leaveoneout(harmonised_dat_steigered)
+plot_loo <- mr_forest_plot(res_loo)
+
