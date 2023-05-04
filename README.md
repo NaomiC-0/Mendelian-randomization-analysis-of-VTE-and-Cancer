@@ -42,13 +42,13 @@ VTE_exp_dat <- fread('path/to/VTE/GWAS_summ_stats') %>%
 # rename all columns to correspond with the column names required for TwoSampleMR package
 # i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
 # check that all SNPs are associated with VTE at GWAS significant pvalue of p=5e-8 and arrange by pval
-  filter(pval<=5e-8) %>% arrange(.,(pval)) %>%
+      filter(pval<=5e-8) %>% arrange(.,(pval)) %>%
 # format as exposure data using TwoSampleMR package
-  format_data(VTE_exp_dat, type="exposure") %>% 
+      format_data(VTE_exp_dat, type="exposure") %>% 
 # clump the data using stringent MR thresholds of r2 = 0.001 in 10,000kb window to ensure all SNPs are independent
 # note this function uses EUR ancestry reference panels accessible via: https://mrcieu.github.io/gwasvcf/index.html
 # not all of the VTE SNPs are present in the reference panel. Those SNPs which were absent were excluded
-  clump_data()
+      clump_data()
 
 # save the file
 fwrite(VTE_exp_dat, 'VTE_exp_dat.csv', row.names =F)
