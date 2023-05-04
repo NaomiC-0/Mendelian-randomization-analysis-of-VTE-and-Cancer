@@ -1,6 +1,6 @@
 # Bidirectional Mendelian randomisation analysis of venous thromboembolism and 18 cancers
 
-This R code accompanies the manuscript titled: ..
+This R code accompanies the manuscript titled: Causal relationships between risk of venous thromboembolism and 18 cancers: a bidirectional Mendelian randomisation analysis
 
 Set libraries and generic functions
 
@@ -82,7 +82,7 @@ glioma <- cancer_outcomes %>% filter(outcome == 'Glioma') %>%
 harmonise_data(exposure_dat = VTE_exp_dat, outcome_dat = glioma, action = 3)
 
 oes <- cancer_outcomes %>% filter(outcome == 'Oesophageal cancer') %>%
-# for oesophageal cancer I confirmed with study authors that all SNPs are on the 5' strand (which is the same for the VTE data), therefore palindromic SNPs can be retained (i.e. action = 1 with the harmonise_data function)
+# for oesophageal cancer I confirmed with study authors that all SNPs are on the 5' strand, therefore palindromic SNPs can be retained (i.e. action = 1 with the harmonise_data function)
 harmonise_data(exposure_dat = VTE_exp_dat, outcome_dat = ., action = 1)
 
 # for all other cancers harmonise data using the default (action = 2) which uses effect allele frequencies to resolve ambiguous/palindromic SNPs 
@@ -97,12 +97,35 @@ fwrite(harmonised_dat, 'harmonised_dat_VTE_to_cancer.csv', row.names = F)
 ```
 ### Steiger-filtering
 
-Here I have used Steiger-filtering to exclude SNPs which explain more variance in the outcome (r2.outcome) than the exposure (r2.exposure) ans these SNPs are likely to be invalid instruments (which either act through horizontal pleiotropy or proxy a reverse causal pathway from outcome to exposure)
+Here I have used Steiger-filtering to exclude SNPs which explain more variance in the outcome (r2.outcome) than the exposure (r2.exposure) as these SNPs are likely to be invalid instruments (which either act through horizontal pleiotropy or proxy a reverse causal pathway from outcome to exposure)
 
 This function requires prevalence estimates for each outcome and exposure in order to estimate the r2 for each SNP 
-(or alternatively it defaults to a prevalence of 0.1 - the same results were obtained in a sensitivity analysis where the default prevalence setting was used)
+(or alternatively it defaults to a prevalence of 0.1 if no prevalence is supplied)
 
-European prevalence data for each cancer was obtained from the (International Agency for Reseach on Cancer website)[https://gco.iarc.fr/today/online-analysis-table?v=2020&mode=cancer&mode_population=continents&population=900&populations=908&key=asr&sex=0&cancer=39&type=0&statistic=5&prevalence=0&population_group=0&ages_group%5B%5D=0&ages_group%5B%5D=17&group_cancer=0&include_nmsc=0&include_nmsc_other=1]
+European prevalence data for each cancer was obtained from the (International Agency for Reseach on Cancer website)[https://gco.iarc.fr/today/online-analysis-table?v=2020&mode=cancer&mode_population=continents&population=900&populations=908&key=asr&sex=0&cancer=39&type=0&statistic=5&prevalence=0&population_group=0&ages_group%5B%5D=0&ages_group%5B%5D=17&group_cancer=0&include_nmsc=0&include_nmsc_other=1] which shows cumulative incidence statistics for each cancer.
+
+``` r{prevalence_estimates}
+
+IARC_dat <- fread('./IARC_cancer_prevalence_EUR.csv')
+
+# Some of the cancer names do not match the cancer names in my harmonised data so need to change these. Note here the prevalence of Glioma, CLL and DLBCL is estimated from the stated cumulative incidence of 'Brain/CNS tumours', 'Leukaemia' and 'Non-Hodgkin lymphoma' respectively. 
+IARC_dat$Cancer <- ifelse(IARC_dat$Cancer == 'Oropharynx', 'Oropharyngeal cancer',
+                          ifelse(IARC_dat$Cancer == 'Lip,oralcavity', 'Oral cancer',
+                                 ifelse(IARC_dat$Cancer == 'Leukaemia', 'Chronic lymphocytic leukaemia',
+                                        ifelse(IARC_dat$Cancer == 'Brain,centralnervoussystem', 'Glioma',
+                                               ifelse(IARC_dat$Cancer == 'Non-Hodgkinlymphoma',
+                                                      'Diffuse large B cell lymphoma',
+                                        IARC_dat$Cancer)))))
+
+# NB cumulative risk/incidence is not the same as prevalance but this is the best estimate I have available
+prev <- IARC_dat %>% dplyr::select(Cancer, `Cum. risk`) %>% mutate(prevalence.outcome = `Cum. risk`/100)
+
+harmonised_dat <- left_join(harmonised_dat, prev, by = c('outcome' = 'Cancer')) %>%
+# follicular lymphoma and MZL do not have a prevalence estimate since they are not in the IARC table. Approximate using the prevalence of DLBCL (0.0183)
+  mutate(prevalence.outcome = ifelse(is.na(prevalence.outcome), 0.0183, prevalence.outcome)) %>%
+# Since VTE is an acute event, the estimated incidence of 2 per 1000 person years has been used in this formula. 
+  mutate(prevalence.exposure = 0.002)
+```
 
 ``` r{steiger_filtering}
 
@@ -110,6 +133,7 @@ European prevalence data for each cancer was obtained from the (International Ag
 harmonised_dat_steigered <- harmonised_dat %>% 
                       mutate(units.exposure = 'log odds',
                       units.outcome = 'log odds') %>%
+
 # the function also requires effect allele frequencies 
 #Glioma and Oesophageal cancer datasets did not have effect allele frequencies available (so missing eaf.outcome. Since the data has already been harmonised and palindromic SNPs discarded as appropriate, I will approximate the eafs for these cancers using the VTE (outcome effect allele frequencies - eaf.exposure)
                     mutate(eaf.outcome = ifelse(is.na(eaf.outcome), eaf.exposure, 
@@ -167,8 +191,79 @@ snps_used <- do.call(rbind, snps_used) %>%
   list(snps_unavailable, snps_excluded, snps_used) %>% reduce(full_join, by = 'outcome') %>% fwrite(., 'table2.csv')
   
 ```
+To create supplementary table 1
+
+``` r{supptable1}
+supp_table1 <- dat_steigerfiltered %>%
+  # delete redundant columns and reorder columns
+  select("SNP", "chr", "position", "exposure", "outcome", "effect_allele.exposure", "other_allele.exposure","effect_allele.outcome","other_allele.outcome", "eaf.exposure","eaf.outcome", "beta.exposure", "se.exposure", "pval.exposure", "ncase.exposure",         "ncontrol.exposure", "samplesize.exposure",  "beta.outcome", "se.outcome",    "pval.outcome", "ncase.outcome", "ncontrol.outcome", "samplesize.outcome", "units.exposure", "prevalence.exposure" ,"rsq.exposure", "units.outcome", "prevalence.outcome", "rsq.outcome", "palindromic","ambiguous",           
+"steiger_dir", "steiger_pval", "mr_keep") %>%
+  # round numeric columns
+  mutate_at(vars(rsq.outcome, steiger_pval, pval.exposure), ~formatC(., format = "e", digits = 2)) %>%
+  mutate_at(vars( 'rsq.exposure', 'beta.exposure', 'se.exposure', 'eaf.exposure'), ~(round(., digits=4))) %>%
+  arrange(., desc(samplesize.outcome), chr, position)
+``` 
 
 ### calculate F-statistic
+
+The mr_wrapper function returns the F statistic (under `info`)
+
+``` r{Fstatistic}
+# run it on the non-filtered Steiger dataframe
+wrapper <- mr_wrapper(dat, parameters = default_parameters())
+# extract the info results results to a new list 
+temp <- list()
+for (i in 1:length(wrapper)) {
+  temp[[i]] <- wrapper[[i]]$info
+  }
+# merge into a single df
+info <- do.call(rbind, temp)
+# assign the exposure names and outcome names to the info results
+outcome_names <- dat %>% dplyr::select(id.exposure, exposure, id.outcome, outcome) %>% distinct(id.exposure, id.outcome, exposure, outcome) 
+
+info <- left_join(info, outcome_names)
+```
+
+### Power calculations
+Calculate the power using the Rcode derived from the supplement in: Burgess 2014: https://academic.oup.com/ije/article/43/3/922/761826
+
+``` r{Power}
+# first split the harmonised data by exposure (using only the SNPs that are mr_keep: SNPs that will be used in MR)
+list <- dat_steigerfiltered %>% filter(mr_keep == T) %>% group_by(outcome) %>% group_split()
+
+# Now I want to apply a function to this list to calculate the following:
+sum.rsq.exposure <- lapply(list, function(x) {sum(x$rsq.exposure)})%>% 
+  do.call(rbind, .) %>% as.data.frame %>% rename('sum.rsq.exposure' = 'V1')
+mean.ncase.exposure <- lapply(list, function(x) {round(mean(x$ncase.exposure))})%>% 
+  do.call(rbind, .) %>% as.data.frame %>% rename('mean.ncase.exposure' = 'V1')
+mean.ncontrol.exposure <- lapply(list, function(x) {round(mean(x$ncontrol.exposure))})%>% 
+  do.call(rbind, .) %>% as.data.frame %>% rename('mean.ncontrol.exposure' = 'V1')
+mean.ncase.outcome <- lapply(list, function(x) {round(mean(x$ncase.outcome))})%>% 
+  do.call(rbind, .) %>% as.data.frame %>% rename('mean.ncase.outcome' = 'V1')
+mean.ncontrol.outcome<- lapply(list, function(x) {round(mean(x$ncontrol.outcome))})%>% 
+  do.call(rbind, .) %>% as.data.frame %>% rename('mean.ncontrol.outcome' = 'V1')
+exposure <- lapply(list, function(x) {x$exposure %>% head(1)})%>% 
+  do.call(rbind, .) %>% as.data.frame %>% rename('exposure' = 'V1')
+outcome <- lapply(list, function(x) {x$outcome %>% head(1)})%>% 
+  do.call(rbind, .) %>% as.data.frame %>% rename('outcome' = 'V1')
+
+# merge these variables into a single df
+power <- cbind(exposure, mean.ncase.exposure, mean.ncontrol.exposure, outcome,  mean.ncase.outcome, mean.ncontrol.outcome, sum.rsq.exposure) %>%
+   mutate(ratio.case.control.exposure = round((mean.ncontrol.exposure/mean.ncase.exposure), digits=2),
+         samplesize.exposure = mean.ncontrol.exposure+mean.ncase.exposure,
+         effective.samplesize.exposure = effective_n(mean.ncase.exposure, mean.ncontrol.exposure),
+         ratio.case.control.outcome = round((mean.ncontrol.outcome/mean.ncase.outcome), digits=2),
+         samplesize.outcome= mean.ncontrol.outcome+mean.ncase.outcome)
+
+The OUTCOME GWAS sample size and case control ratio is used
+ratio = power$ratio.case.control.outcome # ratio of cases:controls = 1:ratio
+n = power$samplesize.outcome # sample size
+
+# calculate power to detect an odds ratio of 1.5 (for cancer for every SD increase in risk of VTE)
+b1 = log(1.5) # or log of OR per SD of causal effect that I need to detect
+power$power_alt_OR.1.5 <- pnorm(sqrt(n*rsq*(ratio/(1+ratio))*(1/(1+ratio)))*b1-qnorm(1-sig/2))
+
+```
 
 ### Run the MR-IVW and sensitivity analyses
 
