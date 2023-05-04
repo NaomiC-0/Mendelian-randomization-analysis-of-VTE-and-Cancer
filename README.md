@@ -467,7 +467,7 @@ forest(x=res2$OR, ci.lb = res2$OR_lci95, ci.ub = res2$OR_uci95,
        xlab = 'OR [95% CI] for cancer per log-odds increase in genetic risk of VTE',
        xlim = c(0.38, 1.95))
 # to add labels for the ilabs it is a bit of a faff
-text(c(1.65, 1.75, 1.9), res2$length+10, # no idea why but this makes sure the labels are in the correct position on vertical axis 
+text(c(1.65, 1.75, 1.9), res2$length+10, 
      c('P', 'FDR-P', 'het-P'), cex=1.0)
 par(cex.lab = 3)
 
@@ -529,7 +529,7 @@ forest(x=res2$OR, ci.lb = res2$OR_lci95, ci.ub = res2$OR_uci95,
        xlab = 'OR [95% CI] for cancer per log-odds increase in genetic risk of VTE',
        xlim = c(0.38, 2.0))
 # to add labels for the ilabs it is a bit of a faff
-text(c(1.75, 1.85, 1.95), res2$length+11, # no idea why but this makes sure the labels are in the correct position on vertical axis 
+text(c(1.75, 1.85, 1.95), res2$length+11,
      c('P', 'FDR-P', 'het-P'), cex=1.0)
 par(cex.lab = 3)
 
@@ -623,4 +623,71 @@ text(c(15, 17), 20,
 # re-set the na.action
 options(na.action = "na.omit")
 ```
-## Mendelian randomisation analyses of the association between genetic liability to cancer and venous thromboembolism risk
+## MR analysis of genetic risk of 18 cancers (exposures) and VTE (outcome)
+
+Exposure data for each cancer and VTE outcome data was formatted as described above. 
+
+
+### Harmonise Cancer exposure data and VTE outcome data
+
+```r{harmonise_cancer_VTE}
+# read in exposure and outcome data
+# set correct wds
+cancer_exp_dat <- list.files(pattern = "*clumped.csv") %>% # Get all file names
+    # read in files and merge into single df
+    lapply(., fread) %>%  rbindlist(., fill=T)
+VTE_outcome_dat <- fread('./OUTCOME_data/outcome_dat_VTE.csv')
+
+# Glioma and Oesophageal cancer have missing eafs which makes harmonisation of palindromic SNPs more difficult
+
+glioma <- cancer_exp_dat %>% filter(exposure == 'Glioma') %>%
+# for glioma the coding strand is not consistent for all SNPs therefore all palindromic SNPs will be excluded (i.e. action = 3 with the harmonise-data function)
+        harmonise_data(exposure_dat = ., outcome_dat = VTE_outcome_dat, action = 3)
+
+oes <- ccancer_exp_dat %>% filter(exposure == 'Oesophageal cancer') %>%
+# for oesophageal cancer I confirmed with study authors that all SNPs are on the 5' strand, therefore palindromic SNPs can be retained (i.e. action = 1 with the harmonise_data function)
+       harmonise_data(exposure_dat = ., outcome_dat = VTE_outcome_dat, action = 1)
+
+# for all other cancers harmonise data using the default (action = 2) which uses effect allele frequencies to resolve ambiguous/palindromic SNPs 
+harmonised_dat <- cancer_exp_dat %>% filter(exposure != 'Glioma' & exposure != 'Oesophageal cancer') %>% 
+    harmonise_data(exposure_dat = ., outcome_dat = VTE_outcome_dat, action =2) %>%
+# create a single dataframe including the harmonised oesophageal cancer and glioma data
+    rbind(., glioma, oes)
+```
+
+### Steiger-filtering
+
+Prevalence estimates obtained from IARC data as described above. 
+
+```r{Steiger_cancer_VTE}
+
+# insert prevalence estimates
+prev <- IARC_dat %>% dplyr::select(Cancer, `Cum. risk`) %>% mutate(prevalence.exposure = `Cum. risk`/100)
+
+harmonised_dat_steigered <- left_join(harmonised_dat, prev, by = c('exposure' = 'Cancer')) %>%
+  # approximate prevalence of Follicular lymphoma and Marginal zone lymphoma using DLBCL data
+  mutate(prevalence.exposure = ifelse(exposure == 'Follicular lymphoma'|exposure == 'Marginal zone lymphoma', 0.0183, prevalence.exposure)) %>%
+  # insert VTE prevalence
+  mutate(prevalence.outcome = 0.002) %>%
+  # add units 
+  mutate(units.exposure = 'log odds', units.outcome = 'log odds') %>%
+  # Glioma and Oesophageal cancer datasets did not have effect allele frequencies available (so missing eaf.exposure. Since the data has already been harmonised and palindromic SNPs discarded as appropriate, I will approximate the eafs for these cancers using the VTE eafs
+  mutate(eaf.exposure <- ifelse(is.na(eaf.exposure), eaf.outcome, eaf.exposure)) %>%
+   # Perform Steiger filtering 
+    steiger_filtering()
+    mutate(mr_keep = ifelse(steiger_dir == F, FALSE, mr_keep)
+```
+
+Supplementary table 6
+
+```{Supp_table6}
+supp_table6 <- left_join(harmonised_dat_steigered, coordinates, by = 'SNP') %>%
+  # delete redundant columns and reorder columns
+  select("SNP", "chr", "position", "exposure", "outcome", "effect_allele.exposure", "other_allele.exposure","effect_allele.outcome","other_allele.outcome", "eaf.exposure","eaf.outcome", "beta.exposure", "se.exposure", "pval.exposure", "ncase.exposure",         "ncontrol.exposure", "samplesize.exposure",  "beta.outcome", "se.outcome",    "pval.outcome", "ncase.outcome", "ncontrol.outcome", "samplesize.outcome", "units.exposure", "prevalence.exposure" ,"rsq.exposure", "units.outcome", "prevalence.outcome", "rsq.outcome", "palindromic","ambiguous",           
+"steiger_dir", "steiger_pval", "mr_keep") %>%
+  # round numeric columns
+  mutate_at(vars(rsq.outcome, steiger_pval, pval.exposure), ~formatC(., format = "e", digits = 2)) %>%
+  mutate_at(vars( 'rsq.exposure', 'beta.exposure', 'se.exposure', 'eaf.exposure'), ~(round(., digits=4))) %>%
+  arrange(., desc(samplesize.exposure), chr, position)
+
+```
