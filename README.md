@@ -117,7 +117,6 @@ IARC_dat$Cancer <- ifelse(IARC_dat$Cancer == 'Oropharynx', 'Oropharyngeal cancer
                                                       'Diffuse large B cell lymphoma',
                                         IARC_dat$Cancer)))))
 
-# NB cumulative risk/incidence is not the same as prevalance but this is the best estimate I have available
 prev <- IARC_dat %>% dplyr::select(Cancer, `Cum. risk`) %>% mutate(prevalence.outcome = `Cum. risk`/100)
 
 harmonised_dat <- left_join(harmonised_dat, prev, by = c('outcome' = 'Cancer')) %>%
@@ -125,11 +124,9 @@ harmonised_dat <- left_join(harmonised_dat, prev, by = c('outcome' = 'Cancer')) 
   mutate(prevalence.outcome = ifelse(is.na(prevalence.outcome), 0.0183, prevalence.outcome)) %>%
 # Since VTE is an acute event, the estimated incidence of 2 per 1000 person years has been used in this formula. 
   mutate(prevalence.exposure = 0.002)
-```
 
-``` r{steiger_filtering}
 
-# first set units columns so the function will work
+# first set units columns so the Steiger-filtering function will work
 harmonised_dat_steigered <- harmonised_dat %>% 
                       mutate(units.exposure = 'log odds',
                       units.outcome = 'log odds') %>%
@@ -286,8 +283,8 @@ mr_heterogeneity <- mr_heterogeneity(
   method_list = subset(mr_method_list(), heterogeneity_test & use_by_default)$obj
 )
 
-# combined results from these three analyses are shown in supplementary table 2
 ```
+Combined results from these three analyses are shown in supplementary table 2
 
 ### Graphs
 
@@ -324,23 +321,216 @@ par(cex.lab = 3)
 ``` r{scatter_plots}
 scatter_plots <- mr_scatter_plot(results, harmonised_dat_steigered)
 setwd('path/to/results')
-pdf("./VTE_to_cancer/scatterplots.pdf")
+pdf("./scatterplots.pdf")
 for (i in 1:length(scatter_plots)) {print(scatter_plots[[i]])}
 dev.off()
 ```
 
-#### Single SNP and funnel plots (supplementary figure ...)
+#### Single SNP, leave one out and funnel plots (supplementary figures)
 
-``` r{single_SNP_plots}
+``` r{sensitivity_analyses_plots}
+
 res_single <- mr_singlesnp(harmonised_dat_steigered, all_method = 'mr_ivw')
+
+# single SNP
+
 single_snp_plots <- mr_forest_plot(res_single)
+setwd('path/to/results')
+pdf("./singleSNPplots.pdf")
+for (i in 1:length(single_snp_plots)) {print(single_snp_plots[[i]])}
+dev.off()
+
+# funnel plots
+
 funnel_plots <- mr_funnel_plot(res_single)
-```
+setwd('path/to/results')
+pdf("./funnel_plots.pdf")
+for (i in 1:length(funnel_plots)) {print(funnel_plots[[i]])}
+dev.off()
 
-#### Leave one out analysis
-
-``` r{leave_one_out}
+# leave one out
 
 res_loo <- mr_leaveoneout(harmonised_dat_steigered)
 plot_loo <- mr_forest_plot(res_loo)
+setwd('path/to/results')
+pdf("./leave_one_out_plots.pdf")
+for (i in 1:length(plot_loo)) {print(plot_loo[[i]])}
+dev.off()
+```
 
+#### Sensitivity analyses with and without rs687289
+The leave one out plots indicate an outlier SNP rs687289 which seems to be distorting the analysis for pancreatic, ovarian and endometrial cancer. Re-run the analysis leaving out rs687289
+Draw forest plots including MR-IVW, MR-Egger, Weighted mean/mode for analyses with and without rs687289
+
+``` r{sensitivity_analyses_plots}
+
+res_without_rs687289 <- dat_steigered %>% filter(outcome == 'Pancreatic cancer'|outcome == 'Ovarian cancer'|outcome == 'Endometrial cancer'|outcome == 'Oral cancer') %>% filter(SNP != 'rs687289') %>% mr %>% generate_odds_ratios %>% mutate_if(is.numeric, ~round(., 4))
+
+# Forest sensitivity with and without rs687289 using metafor package
+
+sensitivity <- MRresults %>% 
+# select the relevant columns from the overall results
+  dplyr::select(outcome, method, OR, OR_lci95, OR_uci95, pval) %>% filter(outcome == 'Pancreatic cancer'|outcome == 'Oral cancer'|outcome == 'Ovarian     cancer'|outcome == 'Endometrial cancer') %>% filter(method == 'Weighted mode'|method == 'Weighted median'|method == 'MR Egger'|method == 'Inverse       variance weighted') %>%
+  mutate(method = factor(method, levels = c("Weighted mode", "Weighted median", "MR Egger", "Inverse variance weighted")),
+         outcome = factor(outcome, levels = c("Oral cancer", "Endometrial cancer", "Ovarian cancer","Pancreatic cancer")))%>% 
+  arrange(outcome, method)
+
+sensitivity_without_rs687289 <- res_without_rs687289 %>% 
+# select the relevant columns 
+dplyr::select(outcome, method, OR, OR_lci95, OR_uci95, pval) %>% filter(method == 'Weighted mode'|method == 'Weighted median'|method == 'MR Egger'|method == 'Inverse variance weighted') %>%
+mutate(method = factor(method, levels = c("Weighted mode", "Weighted median", "MR Egger", "Inverse variance weighted")),
+       outcome = factor(outcome, levels = c("Oral cancer", "Endometrial cancer", "Ovarian cancer","Pancreatic cancer"))) %>%
+arrange(outcome, method)
+
+# Draw forest plot
+mycols = rep(c('darkred', 'green4', 'blue', 'black'), times=4)
+par(mfrow = c(1,2)) # to draw two plots side by side in same window
+forest(x=sensitivity$OR, ci.lb = sensitivity$OR_lci95, ci.ub = sensitivity$OR_uci95,
+slab = sensitivity$method, # label on left side
+cex = 1.0, # text size
+refline = 1.0, # line of null effect
+header= c('MR method', 'OR [95% CI]'),
+col = mycols,
+pch = 15, # shape of point
+psize = 1.0, # size to plot the points
+order = c(sensitivity$outcome), # order by outcome
+rows=c(1:4, 8:11, 15:18, 22:25), # say what rows of the graph to plot each group
+xlab = 'OR [95% CI] for cancer per log-odds increase in genetic risk of VTE',
+main = 'Sensitivity analyses including all SNPs',
+ylim = c(0, 30)) # specify ylimits otherwise labels don't fit
+text(-0.3, c(5.5,12.5,19.5, 26.5), c("Oral cancer",
+"Endometrial cancer",
+"Ovarian cancer",
+"Pancreatic cancer"), cex = 1.0, pos=4, col = 'black')
+rect(-6, 0, 3.0, 6.0, col=adjustcolor("grey60", 0.1), border=NA)
+rect(-6, 7, 3.0, 13.0, col=adjustcolor("grey60", 0.1), border=NA)
+rect(-6, 14, 3.0, 20.0, col=adjustcolor("grey60", 0.1), border=NA)
+rect(-6, 21, 3.0, 27, col=adjustcolor("grey60", 0.1), border=NA)
+forest(x=sensitivity_without_rs687289$OR, ci.lb = sensitivity_without_rs687289$OR_lci95, ci.ub = sensitivity_without_rs687289$OR_uci95,
+slab = sensitivity_without_rs687289$method, # label on left side
+cex = 1.0, # text size
+refline = 1.0, # line of null effect
+header= c('MR method', 'OR [95% CI]'),
+col = mycols,
+pch = 15, # shape of point
+psize = 1.0, # size to plot the points
+order = c(sensitivity_without_rs687289$outcome), # order by outcome
+rows=c(1:4, 8:11, 15:18, 22:25), # say what rows of the graph to plot each group
+xlab = 'OR [95% CI] for cancer per log-odds increase in genetic risk of VTE',
+main = 'Sensitivity analyses excluding rs687289',
+ylim = c(0, 30)) # specify ylimits otherwise labels don't fit
+text(0.15, c(5.5,12.5,19.5, 26.5), c("Oral cancer",
+"Endometrial cancer",
+"Ovarian cancer",
+"Pancreatic cancer"), cex = 1.0, pos=4, col = 'black')
+rect(0, 0, 3.0, 6.0, col=adjustcolor("grey60", 0.1), border=NA)
+rect(0, 7, 3.0, 13.0, col=adjustcolor("grey60", 0.1), border=NA)
+rect(0, 14, 3.0, 20.0, col=adjustcolor("grey60", 0.1), border=NA)
+rect(0, 21, 3.0, 27, col=adjustcolor("grey60", 0.1), border=NA)
+
+```
+
+#### Sensitivity analysis with no Steiger-filtering and replicated VTE SNPs
+
+A sensitivity analysis was performed using the same code above on the non-Steiger filtered harmonised dataframe
+
+```r{sensitivity_non_Steigered_dat}
+dat <- fread('./harmonised_dat_VTE_to_cancer.csv')
+
+MRresults <- mr(dat) %>%
+# ensure the generate odds ratios function has been created (top of the page)
+  generate_odds_ratios %>%
+# add FDR 
+  mutate(FDR_pval = p.adjust(pval, method = 'fdr')) %>% 
+  mutate_if(is.numeric, ~round(., 4))
+MR_heterogeneity <- mr_heterogeneity(
+  dat,
+  parameters = default_parameters(),
+  method_list = subset(mr_method_list(), heterogeneity_test & use_by_default)$obj
+)
+res2<- left_join(MRresults, Mr_heterogeneity) %>% 
+  dplyr::select(outcome, method, OR, OR_lci95, OR_uci95, pval, FDR_pval, bonferroni_pval, Q, Q_pval) %>% filter(method == 'Inverse variance weighted') %>% arrange(., pval) %>% 
+  as.list # not essential to convert to a list but allows the next line of code to work
+res2$length <- length(res2) # this allows me to plot the ilab headings on the graph
+
+forest(x=res2$OR, ci.lb = res2$OR_lci95, ci.ub = res2$OR_uci95, 
+       slab = res2$outcome, # label on left side
+       cex = 1.0, # text size
+       refline = 1.0, # line of null effect
+       main = 'MR-IVW analysis of effect of VTE (exposure) on cancer risk (outcome) - non-Steiger filtered results', # title for the overall graph
+       header= c('Outcome', 'OR [95% CI]'),
+       textpos=c(0.40, 1.6), # position of annotations
+       ilab = cbind(format(round(res2$pval, digits=2), nsmall=2), format(round(res2$FDR_pval, digits=2), nsmall=2), formatC(res2$Q_pval, format = "e", digits = 1)), # extra annotations
+       ilab.xpos = c(1.65, 1.75, 1.9), # position for extra annotations
+       pch = 15, # shape of point
+       psize = 1.0, # size to plot the points, otherwise they are a function of the weighting which looks odd
+       xlab = 'OR [95% CI] for cancer per log-odds increase in genetic risk of VTE',
+       xlim = c(0.38, 1.95))
+# to add labels for the ilabs it is a bit of a faff
+text(c(1.65, 1.75, 1.9), res2$length+10, # no idea why but this makes sure the labels are in the correct position on vertical axis 
+     c('P', 'FDR-P', 'het-P'), cex=1.0)
+par(cex.lab = 3)
+
+```
+
+A further sensitvity analysis was performed using SNPs which were identified as 'known' (i.e. well replicated) in supplementary table 2 of the publication by (Thibord _et al_, 2022)[https://pubmed.ncbi.nlm.nih.gov/36154123/]
+
+```r{sensitivity_known_VTE_SNPs_only}
+knownSNPs <- fread('./Thibord_published_supp2.csv', skip=2) %>% 
+filter(`Novel/known` == 'Known') # 39 SNPs
+
+# Look for these SNPs in the VTE_exp_data
+VTE_exp_known_only <- VTE_exp_dat %>% filter(SNP %in% knownSNPs$SNP) %>% clump_data
+
+# identify these SNPs in the Steiger filtered dataframe
+dat_steigered_known <- harmonised_dat_steigered %>% filter(SNP %in% VTE_known_SNPs$SNP)
+
+# these are shown in supplementary table 3 of the paper:
+supp_table3 <- dat_steigered_known %>%
+  # delete redundant columns and reorder columns
+  select("SNP", "chr", "position", "exposure", "outcome", "effect_allele.exposure", "other_allele.exposure","effect_allele.outcome","other_allele.outcome", "eaf.exposure","eaf.outcome", "beta.exposure", "se.exposure", "pval.exposure", "ncase.exposure",         "ncontrol.exposure", "samplesize.exposure",  "beta.outcome", "se.outcome",    "pval.outcome", "ncase.outcome", "ncontrol.outcome", "samplesize.outcome", "units.exposure", "prevalence.exposure" ,"rsq.exposure", "units.outcome", "prevalence.outcome", "rsq.outcome", "palindromic","ambiguous",           
+"steiger_dir", "steiger_pval", "mr_keep") %>%
+  # round numeric columns
+  mutate_at(vars(rsq.outcome, steiger_pval, pval.exposure), ~formatC(., format = "e", digits = 2)) %>%
+  mutate_at(vars( 'rsq.exposure', 'beta.exposure', 'se.exposure', 'eaf.exposure'), ~(round(., digits=4))) %>%
+  arrange(., desc(samplesize.outcome), chr, position)
+
+# get the results
+MRresults <- mr(dat_steigered_known) %>% generate_odds_ratios %>% 
+  mutate(fdr_pval = p.adjust(pval, method = 'fdr'))  %>%
+  mutate_if(is.numeric, ~round(., 4))
+  
+MR_heterogeneity <- mr_heterogeneity(
+ dat_steigered_known,
+  parameters = default_parameters(),
+  method_list = subset(mr_method_list(), heterogeneity_test & use_by_default)$obj
+) %>% arrange (., Q_pval)
+
+mr_pleiotropy <- mr_pleiotropy_test(dat_steigered_known) %>% dplyr::select(exposure, outcome, egger_intercept, se, pval)
+
+# forest plot
+res2<- left_join(MRresults, mr_heterogeneity) %>% 
+  dplyr::select(outcome, method, OR, OR_lci95, OR_uci95, pval, fdr_pval, Q, Q_pval) %>% filter(method == 'Inverse variance weighted') %>% arrange(., pval) %>% 
+  as.list # not essential to convert to a list but allows the next line of code to work
+res2$length <- length(res2) # this allows me to plot the ilab headings on the graph
+
+
+forest(x=res2$OR, ci.lb = res2$OR_lci95, ci.ub = res2$OR_uci95, 
+       slab = res2$outcome, # label on left side
+       cex = 1.0, # text size
+       refline = 1.0, # line of null effect
+       main = 'MR-IVW analysis of effect of VTE (proxied using replicated instruments only) \n on cancer risk (outcome)', # title for the overall graph
+       header= c('Outcome', 'OR [95% CI]'),
+       textpos=c(0.40, 1.7), # position of annotations
+       ilab = cbind(format(round(res2$pval, digits=2), nsmall=2), format(round(res2$fdr_pval, digits=2), nsmall=2), formatC(res2$Q_pval, format = "e", digits = 1)), # extra annotations
+       ilab.xpos = c(1.75, 1.85, 1.95), # position for extra annotations
+       pch = 15, # shape of point
+       psize = 1.0, # size to plot the points, otherwise they are a function of the weighting which looks odd
+       xlab = 'OR [95% CI] for cancer per log-odds increase in genetic risk of VTE',
+       xlim = c(0.38, 2.0))
+# to add labels for the ilabs it is a bit of a faff
+text(c(1.75, 1.85, 1.95), res2$length+11, # no idea why but this makes sure the labels are in the correct position on vertical axis 
+     c('P', 'FDR-P', 'het-P'), cex=1.0)
+par(cex.lab = 3)
+
+```
