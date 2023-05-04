@@ -44,7 +44,7 @@ VTE_exp_dat <- fread('path/to/VTE/GWAS_summ_stats') %>%
 # check that all SNPs are associated with VTE at GWAS significant pvalue of p=5e-8 and arrange by pval
       filter(pval<=5e-8) %>% arrange(.,(pval)) %>%
 # format as exposure data using TwoSampleMR package
-      format_data(VTE_exp_dat, type="exposure") %>% 
+      format_data(., type="exposure") %>% 
 # clump the data using stringent MR thresholds of r2 = 0.001 in 10,000kb window to ensure all SNPs are independent
 # note this function uses EUR ancestry reference panels accessible via: https://mrcieu.github.io/gwasvcf/index.html
 # not all of the VTE SNPs are present in the reference panel. Those SNPs which were absent were excluded
@@ -168,7 +168,7 @@ snps_unavailable <- do.call(rbind, snps_unavailable) %>% rename('snps_unavailabl
 # 2) How many VTE SNPs are excluded from each VTE-cancer analysis after harmonisation due to either an ambiguous coding strand (palindromic SNPs which could not be resolved) or Steiger-filtering
 snps_excluded <- list()
 for (i in outcomes) {
-  n_snp <- dat_steigerfiltered %>% filter(outcome == i) %>% filter(mr_keep == F) %>% count
+  n_snp <- harmonised_dat_steigered %>% filter(outcome == i) %>% filter(mr_keep == F) %>% count
   outcome <- i
   snps_excluded[[i]] <- cbind(outcome, n_snp)
   }
@@ -178,7 +178,7 @@ snps_excluded <- do.call(rbind, snps_excluded) %>%
   # 3) How many VTE SNPs are used in each VTE-cancer analysis
   snps_used <- list()
 for (i in outcomes) {
-  n_snp <- dat_steigerfiltered %>% filter(outcome == i) %>% filter(mr_keep == T) %>% count
+  n_snp <- harmonised_dat_steigered %>% filter(outcome == i) %>% filter(mr_keep == T) %>% count
   outcome <- i
   snps_used[[i]] <- cbind(outcome, n_snp)}
 snps_used <- do.call(rbind, snps_used) %>% 
@@ -191,7 +191,7 @@ snps_used <- do.call(rbind, snps_used) %>%
 To create supplementary table 1
 
 ``` r{supptable1}
-supp_table1 <- dat_steigerfiltered %>%
+supp_table1 <- harmonised_dat_steigered %>%
   # delete redundant columns and reorder columns
   select("SNP", "chr", "position", "exposure", "outcome", "effect_allele.exposure", "other_allele.exposure","effect_allele.outcome","other_allele.outcome", "eaf.exposure","eaf.outcome", "beta.exposure", "se.exposure", "pval.exposure", "ncase.exposure",         "ncontrol.exposure", "samplesize.exposure",  "beta.outcome", "se.outcome",    "pval.outcome", "ncase.outcome", "ncontrol.outcome", "samplesize.outcome", "units.exposure", "prevalence.exposure" ,"rsq.exposure", "units.outcome", "prevalence.outcome", "rsq.outcome", "palindromic","ambiguous",           
 "steiger_dir", "steiger_pval", "mr_keep") %>%
@@ -207,7 +207,7 @@ The mr_wrapper function returns the F statistic (under `info`)
 
 ``` r{Fstatistic}
 # run it on the non-filtered Steiger dataframe
-wrapper <- mr_wrapper(dat, parameters = default_parameters())
+wrapper <- mr_wrapper(harmonised_dat, parameters = default_parameters())
 # extract the info results results to a new list 
 temp <- list()
 for (i in 1:length(wrapper)) {
@@ -226,7 +226,7 @@ Calculate the power using the Rcode derived from the supplement in: Burgess 2014
 
 ``` r{Power}
 # first split the harmonised data by exposure (using only the SNPs that are mr_keep: SNPs that will be used in MR)
-list <- dat_steigerfiltered %>% filter(mr_keep == T) %>% group_by(outcome) %>% group_split()
+list <- harmonised_dat_steigered %>% filter(mr_keep == T) %>% group_by(outcome) %>% group_split()
 
 # Now I want to apply a function to this list to calculate the following:
 sum.rsq.exposure <- lapply(list, function(x) {sum(x$rsq.exposure)})%>% 
@@ -534,3 +534,93 @@ text(c(1.75, 1.85, 1.95), res2$length+11, # no idea why but this makes sure the 
 par(cex.lab = 3)
 
 ```
+#### MR Wald ratios for the association between VTE risk proxied by either Factor V Leiden (rs6025) or Prothrombin G20210A (rs1799963), and cancer
+
+
+```r{FVL_PT_Waldratios}
+
+# rs1799963 wasn't included in the main analysis as it was omitted from the LD_ref panel due to a low MAF. So I need to reharmonise the data just for these SNPs.
+
+# identify FVL and PT variant in the VTE summary data
+VTE_PT_FVL <- fread('path/to/VTE/GWAS_summ_stats') %>%
+# rename all columns to correspond with the column names required for TwoSampleMR package
+# i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
+# select just the relevant SNPs
+      filter(SNP == 'rs6025'|SNP == 'rs1799963') %>%
+# format as exposure data using TwoSampleMR package
+      format_data(., type="exposure")
+
+# read in the cancer outcome data
+setwd('./OUTCOME_data')
+cancer_outcomes <- list.files(pattern = "*dat.csv")       # Get all file names. # use this prefix to avoid accidentally reading in the VTE file...
+cancer_outcomes <- lapply(cancer_outcomes, fread) %>% reduce(full_join)
+
+# Harmonise as previously described
+# Glioma and Oesophageal cancer have missing eafs which makes harmonisation of palindromic SNPs more difficult
+glioma <- cancer_outcomes %>% filter(outcome == 'Glioma') %>%
+# not clear if all SNPs on same coding strand use action 3 = drop all palindromic SNPs
+      harmonise_data(exposure_dat = VTE_exp_with_PT, outcome_dat = ., action = 3) 
+
+oes <- cancer_outcomes %>% filter(outcome == 'Oesophageal cancer') %>% 
+# all SNPs on forward strand - same for VTE therefore palindromic SNPs retained.
+    harmonise_data(exposure_dat = VTE_PT_FVL, outcome_dat = ., action = 1)
+
+harmonised_dat_FVL_PT <- cancer_outcomes %>% filter(outcome != 'Glioma' & outcome != 'Oesophageal cancer') %>%
+# for all other cancer use action = 2: the function will try to infer ambiguous/palindromix SNP issues using allele frequencies.
+      harmonise_data(exposure_dat = VTE_exp_with_PT, outcome_dat = ., action =2) %>%
+      # merge with the oesophageal and glioma harmonised df
+      rbind(., oes, glioma)
+
+# get the results
+resFVL <- harmonised_dat_FVL_PT %>% filter(SNP=='rs6025') %>% mr() %>% generate_odds_ratios() %>%
+  mutate('FDR_pval' = p.adjust(pval, method='fdr')) %>% mutate(SNP = 'rs6025')
+resPT <- harmonised_dat_FVL_PT %>% filter(SNP=='rs1799963') %>% r() %>% generate_odds_ratios() %>%
+  mutate('FDR_pval' = p.adjust(pval, method='fdr')) %>% mutate(SNP = 'rs1799963')
+
+# draw Forest plots
+# insert the cancers where there was no data available for the PT G20210A mutations
+missing_cancers <- resFVL  %>% filter(outcome %!in% resPT$outcome) %>% select(outcome)
+resPT <- resPT %>% full_join(., missing_cancers) %>%
+  # arrange in the same order as the FVL plot:
+   mutate(outcome = factor(outcome, levels = c( "Colorectal cancer", "Follicular lymphoma", "Melanoma", "Oral cancer", "Chronic lymphocytic leukaemia", "Oropharyngeal cancer", "Lung Cancer", "Pancreatic cancer", "Prostate cancer", "Diffuse large B cell lymphoma", "Ovarian cancer",   "Marginal zone lymphoma", "Bladder cancer", "Breast cancer", "Endometrial cancer", "Oesophageal cancer",   "Glioma", "Kidney Cancer"))) %>% arrange(., outcome)
+ 
+# FV Leiden Wald ratio forest plot 
+   forest(x=resFVL$OR, ci.lb = resFVL$OR_lci95, ci.ub = resFVL$OR_uci95, 
+       slab = resFVL$outcome, # label on left side
+       cex = 1.0, # text size
+       refline = 1.0, # line of null effect
+       main = '[A] MR Wald ratios for effect of VTE proxied by Factor 5 Leiden (exposure) \non cancer risk (outcome)', # title for the overall graph
+       header= c('Outcome', 'OR [95% CI]'),
+       textpos=c(0.20, 1.80), # position of annotations
+       ilab = cbind(format(round(resFVL$pval, digits=2), nsmall=2), format(round(resFVL$FDR_pval, digits=2), nsmall=2)), # extra annotations
+       ilab.xpos = c(1.85, 2.0), # position for extra annotations
+       pch = 15, # shape of point
+       psize = 1.0, # size to plot the points
+       xlab = 'OR [95% CI] for cancer per log-odds increase in risk of VTE proxied by Factor V Leiden genotype',
+       xlim = c(0.1, 2.1))
+# to add labels for the ilabs 
+text(c(1.85, 2.0), 20, 
+     c('P', 'FDR-P'), cex=1.0)
+
+# Prothrombin variant Wald ratio forest plot 
+options(na.action = "na.pass") # temporarily set na.action to pass so that it plots these
+forest(x=resPT$OR, ci.lb = resPT$OR_lci95, ci.ub = resPT$OR_uci95,
+       slab = resPT$outcome, # label on left side
+       cex = 1.0, # text size
+       refline = 1.0, # line of null effect
+       main = '[B] MR Wald ratios for effect of VTE proxied by Prothrombin G20210A (exposure) \non cancer risk (outcome)', # title for the overall graph
+       header= c('Outcome', 'OR [95% CI]'),
+       textpos=c(-7, 14), # position of annotations
+       ilab = cbind(format(round(resPT$pval, digits=2), nsmall=2), format(round(resPT$FDR_pval, digits=2), nsmall=2)), # extra annotations
+       ilab.xpos = c(15, 17), # position for extra annotations
+       pch = 15, # shape of point
+       psize = 1.0, # size to plot the points
+       xlab = 'OR [95% CI] for cancer per log-odds increase in risk of VTE proxied by Prothrombin G20210A genotype',
+       xlim = c(-7, 18))
+# to add labels for the ilabs it is a bit of a faff
+text(c(15, 17), 20,
+     c('P', 'FDR-P'), cex=1.0)
+# re-set the na.action
+options(na.action = "na.omit")
+```
+## Mendelian randomisation analyses of the association between genetic liability to cancer and venous thromboembolism risk
