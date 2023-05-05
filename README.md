@@ -139,14 +139,14 @@ harmonised_dat_steigered <- harmonised_dat %>%
 # the function also requires effect allele frequencies 
 #Glioma and Oesophageal cancer datasets did not have effect allele frequencies available (so missing eaf.outcome. Since the data has already been harmonised and palindromic SNPs discarded as appropriate, I will approximate the eafs for these cancers using the VTE (outcome effect allele frequencies - eaf.exposure)
                     mutate(eaf.outcome = ifelse(is.na(eaf.outcome), eaf.exposure, 
-                           eaf.outcome) %>%
+                           eaf.outcome)) %>%
 # perform the Steiger filtering
                     steiger_filtering %>%
 # for the Steiger 'FALSE' SNPs (where r2.outcome > r2.exposure), change mr_keep to FALSE to exclude from the analysis
                     mutate(mr_keep = ifelse(steiger_dir == F,
-                                      FALSE, mr_keep)
+                                      FALSE, mr_keep))
 # save the file
-fwrite(harmonised_dat_steigered, 'harmonised_dat_steigered_VTE_to_cancer.csv'
+fwrite(harmonised_dat_steigered, 'harmonised_dat_steigered_VTE_to_cancer.csv')
 
 ```
 
