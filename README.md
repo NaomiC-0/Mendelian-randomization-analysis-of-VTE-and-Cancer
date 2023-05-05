@@ -33,7 +33,7 @@ generate_odds_ratios <- function(res) {
 European ancestry VTE exposure summary data was obtained from the VTE GWAS meta-analysis by (Thibord _et al_, 2022)[https://pubmed.ncbi.nlm.nih.gov/36154123/]
 Independent European ancestry VTE risk loci are found in supplementary table 2 of this paper
 
-Cancer outcome data for each cancer was obtained from a variety of sources (see data availability supplement)
+Cancer outcome data for each cancer was obtained from a variety of sources (see data availability statement in manuscript)
 
 ``` r{format_data}
 
