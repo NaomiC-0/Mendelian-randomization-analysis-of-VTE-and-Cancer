@@ -37,15 +37,20 @@ Cancer outcome data for each cancer was obtained from a variety of sources (see 
 
 ``` r{format_data}
 
-# load VTE exposure data
+# load VTE exposure SNPs from supplementary table 2 of source publication
+published_VTE_risk_loci <- fread('./Thibord_published_supp2.csv', skip=2)
+
+# load full VTE summary sttistics file with beta/pval/se/sample sizes
 VTE_exp_dat <- fread('path/to/VTE/GWAS_summ_stats') %>%
 # rename all columns to correspond with the column names required for TwoSampleMR package
 # i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
+# identify the independent VTE risk loci (reported in supp table 2)
+      filter (SNP %in% published_VTE_risk_loci$SNP) %>% 
 # check that all SNPs are associated with VTE at GWAS significant pvalue of p=5e-8 and arrange by pval
       filter(pval<=5e-8) %>% arrange(.,(pval)) %>%
 # format as exposure data using TwoSampleMR package
       format_data(., type="exposure") %>% 
-# clump the data using stringent MR thresholds of r2 = 0.001 in 10,000kb window to ensure all SNPs are independent
+# clump the data using the more stringent MR thresholds of r2 = 0.001 in 10,000kb window to ensure all SNPs are independent
 # note this function uses EUR ancestry reference panels accessible via: https://mrcieu.github.io/gwasvcf/index.html
 # not all of the VTE SNPs are present in the reference panel. Those SNPs which were absent were excluded
       clump_data()
