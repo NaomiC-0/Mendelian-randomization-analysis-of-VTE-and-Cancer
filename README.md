@@ -261,8 +261,8 @@ The OUTCOME GWAS sample size and case control ratio is used
 ratio = power$ratio.case.control.outcome # ratio of cases:controls = 1:ratio
 n = power$samplesize.outcome # sample size
 
-# calculate power to detect an odds ratio of 1.5 (for cancer for every SD increase in risk of VTE)
-b1 = log(1.5) # or log of OR per SD of causal effect that I need to detect
+# calculate power to detect an odds ratio of 1.5 (for cancer for every unit increase in risk of VTE)
+b1 = log(1.5) # causal estimate required to detect
 power$power_alt_OR.1.5 <- pnorm(sqrt(n*rsq*(ratio/(1+ratio))*(1/(1+ratio)))*b1-qnorm(1-sig/2))
 
 ```
