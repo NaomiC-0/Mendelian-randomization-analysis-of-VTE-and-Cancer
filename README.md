@@ -40,7 +40,7 @@ Cancer outcome data for each cancer was obtained from a variety of sources (see 
 # load VTE exposure SNPs from supplementary table 2 of source publication
 published_VTE_risk_loci <- fread('./Thibord_published_supp2.csv', skip=2)
 
-# load full VTE summary sttistics file with beta/pval/se/sample sizes
+# load full VTE summary sttistics file with beta/pval/se/sample sizes (obtained from INVENT-MVP consortium)
 VTE_exp_dat <- fread('path/to/VTE/GWAS_summ_stats') %>%
 # rename all columns to correspond with the column names required for TwoSampleMR package
 # i.e. SNP, chr, position, effect_allele, other_allele, eaf, beta, se, pval, ncase, ncontrol, samplesize, consortium, date, pmid, Phenotype
@@ -460,7 +460,7 @@ supp_table3 <- dat_steigered_known %>%
   mutate_at(vars( 'rsq.exposure', 'beta.exposure', 'se.exposure', 'eaf.exposure'), ~(round(., digits=4))) %>%
   arrange(., desc(samplesize.outcome), chr, position)
 
-# get the results
+# get the results (supplementary table 4)
 MRresults <- mr(dat_steigered_known) %>% generate_odds_ratios %>% 
   mutate(fdr_pval = p.adjust(pval, method = 'fdr'))  %>%
   mutate_if(is.numeric, ~round(., 4))
@@ -473,7 +473,7 @@ MR_heterogeneity <- mr_heterogeneity(
 
 mr_pleiotropy <- mr_pleiotropy_test(dat_steigered_known) %>% dplyr::select(exposure, outcome, egger_intercept, se, pval)
 
-# forest plot
+# forest plot (supplementary figure 4)
 res2<- left_join(MRresults, mr_heterogeneity) %>% 
   dplyr::select(outcome, method, OR, OR_lci95, OR_uci95, pval, fdr_pval, Q, Q_pval) %>% filter(method == 'Inverse variance weighted') %>% arrange(., pval) %>% 
   as.list # not essential to convert to a list but allows the next line of code to work
@@ -624,7 +624,7 @@ forest(x=resPT$OR, ci.lb = resPT$OR_lci95, ci.ub = resPT$OR_uci95,
        psize = 1.0, # size to plot the points
        xlab = 'OR [95% CI] for cancer per log-odds increase in risk of VTE proxied by Prothrombin G20210A genotype',
        xlim = c(-7, 18))
-# to add labels for the ilabs it is a bit of a faff
+# to add labels 
 text(c(15, 17), 20,
      c('P', 'FDR-P'), cex=1.0)
 # re-set the na.action
@@ -639,7 +639,7 @@ Exposure data for each cancer and VTE outcome data was formatted as described ab
 
 ```r{harmonise_cancer_VTE}
 # read in exposure and outcome data
-# set correct wds
+# set correct wd
 cancer_exp_dat <- list.files(pattern = "*clumped.csv") %>% # Get all file names
     # read in files and merge into single df
     lapply(., fread) %>%  rbindlist(., fill=T)
@@ -651,7 +651,7 @@ glioma <- cancer_exp_dat %>% filter(exposure == 'Glioma') %>%
 # for glioma the coding strand is not consistent for all SNPs therefore all palindromic SNPs will be excluded (i.e. action = 3 with the harmonise-data function)
         harmonise_data(exposure_dat = ., outcome_dat = VTE_outcome_dat, action = 3)
 
-oes <- ccancer_exp_dat %>% filter(exposure == 'Oesophageal cancer') %>%
+oes <- cancer_exp_dat %>% filter(exposure == 'Oesophageal cancer') %>%
 # for oesophageal cancer I confirmed with study authors that all SNPs are on the 5' strand, therefore palindromic SNPs can be retained (i.e. action = 1 with the harmonise_data function)
        harmonise_data(exposure_dat = ., outcome_dat = VTE_outcome_dat, action = 1)
 
