@@ -208,26 +208,31 @@ supp_table1 <- harmonised_dat_steigered %>%
 
 ### calculate F-statistic
 
-The mr_wrapper function returns the F statistic (under `info`)
+use the formula beta^2/se^2
 
 ``` r{Fstatistic}
-# run it on the non-filtered Steiger dataframe
-wrapper <- mr_wrapper(harmonised_dat, parameters = default_parameters())
-# extract the info results results to a new list 
-temp <- list()
-for (i in 1:length(wrapper)) {
-  temp[[i]] <- wrapper[[i]]$info
-  }
-# merge into a single df
-info <- do.call(rbind, temp)
-# assign the exposure names and outcome names to the info results
-outcome_names <- dat %>% dplyr::select(id.exposure, exposure, id.outcome, outcome) %>% distinct(id.exposure, id.outcome, exposure, outcome) 
+# get a list of the outcome names
+outcomes <- harmonised_dat_steigered %>% distinct(outcome) %>% select(outcome) %>% unlist
 
-info <- left_join(info, outcome_names)
+# calculate F stat using the formula b^2/se^2
+Fstat <- data.frame()
+for (i in outcome) {
+  temp <- harmonised_dat_steigered %>% filter(outcome== i) %>%
+# filter for the SNPs which are going to be used in the MR (ie. Steiger direction = T and have harmonised correctly)
+filter(mr_keep == T) %>%
+    rowwise() %>% mutate(`Fstat` = (beta.exposure^2)/(se.exposure^2)) %>% select(outcome, Fstat)
+  Fstat <- rbind(Fstat, temp)
+}
+rm(temp)
+                                                                          
+meanFstats <- Fstat %>% group_by(., outcome) %>% summarize(meanFstat = mean(Fstat))
+rm(Fstat)
+
 ```
 
 ### Power calculations
 Calculate the power using the Rcode derived from the supplement in: Burgess 2014: https://academic.oup.com/ije/article/43/3/922/761826
+Note this section of the paper was removed after feedback from peer-review suggesting post-hoc power calculations were not necessary/appropriate. Power limitations are addressed in the discussion.
 
 ``` r{Power}
 # first split the harmonised data by exposure (using only the SNPs that are mr_keep: SNPs that will be used in MR)
@@ -289,6 +294,138 @@ mr_heterogeneity <- mr_heterogeneity(
 )
 
 ```
+### MR-PRESSO
+
+Added following peer-review. Output is described here: https://github.com/rondolab/MR-PRESSO/issues/13
+Note that the 'sd' is actually the standard error of the mean as described here: https://github.com/rondolab/MR-PRESSO/issues/15
+
+``` r{results_MR-PRESSO}
+
+# create a list of outcomes beacuse otherwise the exposure names get separated from the results when I run the mr_presso function
+
+presso_outcomes <- dat %>% distinct(outcome) %>% select(outcome) %>% unlist
+
+res_presso <- dat %>% as.data.frame %>%
+    run_mr_presso(., NbDistribution = 5000, SignifThreshold = 0.05)
+names(res_presso) <- presso_outcomes
+
+# to extract the relevant elements of the MR PRESSO results
+
+# Extract the main MR PRESSO result
+# create an empty list
+temp <- list()
+# extract the info results results to the list
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- res_presso[[i]]$`Main MR results`
+}
+ # assign the relevant outcome names to each result
+names(temp) <- presso_outcomes
+
+'PRESSO_main_results' <- rbindlist(temp, fill = T) %>%
+  # add a column with the names of the exposures and outcomes
+  mutate(outcome = rep(names(temp), sapply(temp, nrow)),
+         exposure = 'Venous thromboembolism') %>%
+  # add odds ratio and CIs...note here they report sd which I presume means standard deviation....but do they actually mean the se of the mean?? Yes they mean standard error: see this github https://github.com/rondolab/MR-PRESSO/issues/15
+  # first have to rename the columns so that the function works
+  rename(b = `Causal Estimate`, se = Sd) %>%
+  generate_odds_ratios() %>%
+  mutate(FDR_pval = p.adjust(`P-value`, method = 'fdr')) %>%
+  # select relevant columns
+  select(outcome, exposure, `MR Analysis`, b, se, OR, OR_lci95, OR_uci95, `T-stat`, `P-value`, FDR_pval) %>%
+  rename(analysis = `MR Analysis`, pval = `P-value`)
+         
+
+# the outlier indices are just the row numbers of the SNPs which were judged to be outliers and are not useful in themselves; however for each cancer where there were outliers, I am interested in how many SNPs were excluded for the outlier-removed analysis:
+temp <- list()
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- length(res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Outliers Indices`)
+}
+names(temp) <- presso_outcomes
+# convert to a dataframe with the outcome names
+temp <- temp %>% as.matrix() %>% as.data.frame %>%
+  cbind(.,presso_outcomes) %>% rename('nSNP_outliers' = V1, 'outcome' = presso_outcomes)
+  
+# note there is a catch here...sometimes $`MR-PRESSO results`$`Distortion Test`$`Outliers Indices` says 'no significant outliers' that is character [1] but it will return a 1 in this column instead of a 0 if it ran the outlier test and didn;t find any outliers.To resolve this. Figure out the class of the 'outlier indices column'
+temp1 <- list()
+for (i in 1:length(res_presso)) {
+  temp1[[i]] <- class(res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Outliers Indices`)
+}
+names(temp1) <- presso_outcomes
+temp1 <- temp1 %>% as.matrix() %>% as.data.frame %>%
+  cbind(.,presso_outcomes) %>% rename('class' = V1, 'outcome' = presso_outcomes) %>%
+  # now merge with the dataframe named temp
+  left_join(temp, ., by='outcome') %>%
+  # now replace the values of the nSNP_outliers column accordingly
+  # first change the class column to a character variable rather than a logical vector and the nSNP_outliers column to a numeric variable (rather than a list)
+  mutate(class = as.character(class),
+         nSNP_outliers = as.numeric(nSNP_outliers))
+ # I will edit the n_SNP_outliers column according to the class column later on (see combined results for supplementary tables sectoin. For now, keep it as numeric with the original values because I need it to caluculate the final number of SNPs in the MRPRESSO outlier analysis)
+
+
+# I want to merge these with the PRESSO_main results (in the outlier-corrected row). so first create a column so that we know this result refers to the outlier corrected MR PRESSO result
+PRESSO_main_results <- temp1 %>%
+  mutate(exposure = 'Venous thromboembolism') %>% 
+  # create a column so that we know these are referring to the outlier corrected results
+  mutate(analysis = 'Outlier-corrected') %>%
+  # then join
+  left_join(PRESSO_main_results, ., by = c('exposure', 'outcome', 'analysis'))
+
+
+# Now extract the MR-PRESSO global tests for pleiotropy 
+temp <- list()
+# extract the info results results to the list
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- res_presso[[i]]$`MR-PRESSO results`$`Global Test`
+}
+names(temp) <- presso_outcomes
+
+'PRESSO_pleiotropy_result' <- rbindlist(temp, fill = T) %>% 
+    # add a column with the names of the exposures and outcomes
+  cbind(., presso_outcomes) %>%
+  mutate(exposure = 'Venous thromboembolism') %>%
+  rename(pleiotropy_globaltest_pval = Pvalue,
+         outcome = presso_outcomes) %>%
+  select(exposure, outcome, pleiotropy_globaltest_pval)
+
+# Now extract the MR-PRESSO distortion test (tests the difference in the causal estimates before and after outlier removal). 
+
+temp <- list()
+# extract the distortion test Pvalue results results to the list. I don't need the outlier indices - these are just the row numbers of the SNPs which were judged to be outliers and are not useful in themselves; I have chosen not to extract the distortion coefficent either as this is a relatively meaningless number as far as I can tell.
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Pvalue`
+}
+names(temp) <- presso_outcomes
+
+# some of the cancers (the ones without outliers) return 'NULL' for the distortion test. Remove these from the table
+'PRESSO_distortion_test' <- Filter(Negate(is.null), temp) %>%
+  # then convert into a df
+  cbind %>% as.data.frame %>%
+  # name columns
+  setnames(., colnames(.), c('distortion_test_pval')) 
+
+# add the exposure column (using the rownames)
+PRESSO_distortion_test$outcome <- row.names(PRESSO_distortion_test)
+
+# NB note that here colorectal and lung cancer return NA in the distortion test pvalue (rather than NULL). I think this is because the global MR-PRESSO test indicated possible pleiotropy (e.g. P = 0.005 for colorectal cancer) but in the outlier test there were no significant outliers. 
+
+# Merge all the relevant MR PRESSO results together
+PRESSO_results <- left_join(PRESSO_main_results, PRESSO_pleiotropy_result, by = c('exposure', 'outcome')) %>% left_join(., PRESSO_distortion_test, by = 'outcome') %>%
+  # if the distortion test pval column says 'NULL' change this to NA
+  mutate(distortion_test_pval = ifelse(distortion_test_pval == 'NULL', NA, distortion_test_pval)) %>%
+  # if the nSNP_outlier column says 'NULL' change this to NA
+  mutate(nSNP_outliers = ifelse(nSNP_outliers == 'NULL', NA, nSNP_outliers)) %>%
+  # the pleiotropy global test pval and distortion test pval are getting duplicated when I merge the tables (because there are 2 rows for each cancer: one raw result and one outlier corrected result. I only need these values to show in the table once - modify this)
+  mutate(distortion_test_pval = ifelse(analysis == 'Raw', NA, distortion_test_pval),
+         pleiotropy_globaltest_pval = ifelse(analysis == 'Outlier-corrected', NA, pleiotropy_globaltest_pval)) %>%
+  # delete the columns named b and se since we are displaying the OR columns
+  select(-c(b, se)) %>%
+  # arrange them in the same order as the other results (for easy comparison)
+  mutate(outcome= factor(outcome, levels = c('Pancreatic cancer', 'Oral cancer', 'Ovarian cancer', 'Endometrial cancer', 'Kidney Cancer', 'Oesophageal cancer', 'Lung Cancer', 'Bladder cancer', 'Follicular lymphoma', 'Melanoma', 'Prostate cancer', 'Marginal zone lymphoma', 'Diffuse large B cell lymphoma', 'Colorectal cancer', 'Breast cancer', 'Glioma', 'Oropharyngeal cancer', 'Chronic lymphocytic leukaemia'))) %>% arrange(outcome) %>%
+  # round the results
+  mutate_if(is.numeric, ~round(., 3))
+
+```
+
 Combined results from these three analyses are shown in supplementary table 2
 
 ### Graphs
@@ -701,22 +838,25 @@ supp_table6 <- left_join(harmonised_dat_steigered, coordinates, by = 'SNP') %>%
 
 ### calculate F-statistic
 
-The mr_wrapper function returns the F statistic (under `info`)
+use the formula beta^2/se^2
 
 ``` r{Fstatistic}
-# run it on the non-filtered Steiger dataframe
-wrapper <- mr_wrapper(harmonised_dat, parameters = default_parameters())
-# extract the info results results to a new list 
-temp <- list()
-for (i in 1:length(wrapper)) {
-  temp[[i]] <- wrapper[[i]]$info
-  }
-# merge into a single df
-info <- do.call(rbind, temp)
-# assign the exposure names and outcome names to the info results
-exposure_names <- dat %>% dplyr::select(id.exposure, exposure, id.outcome, outcome) %>% distinct(id.exposure, id.outcome, exposure, outcome) 
+# get a list of the exposure names
+exposures <- harmonised_dat_steigered %>% distinct(exposure) %>% select(exposure) %>% unlist
 
-info <- left_join(info, exposure_names)
+# calculate F stat using the formula b^2/se^2
+Fstat <- data.frame()
+for (i in exposures) {
+  temp <- harmonised_dat_steigered %>% filter(exposure == i) %>%
+# filter for the SNPs which are going to be used in the MR (ie. Steiger direction = T and have harmonised correctly)
+filter(mr_keep == T) %>%
+    rowwise() %>% mutate(`Fstat` = (beta.exposure^2)/(se.exposure^2)) %>% select(exposure, Fstat)
+  Fstat <- rbind(Fstat, temp)
+}
+rm(temp)
+                                                                          
+meanFstats <- Fstat %>% group_by(., exposure) %>% summarize(meanFstat = mean(Fstat))
+rm(Fstat)
 ```
 
 ### Power calculations
