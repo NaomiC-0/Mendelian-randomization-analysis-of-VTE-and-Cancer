@@ -31,13 +31,13 @@ generate_odds_ratios <- function(res) {
 
 ### Format data
 European ancestry VTE exposure summary data was obtained from the VTE GWAS meta-analysis by (Thibord _et al_, 2022)[https://pubmed.ncbi.nlm.nih.gov/36154123/]
-Independent European ancestry VTE risk loci are found in supplementary table 2 of this paper
+Independent European ancestry VTE risk loci are found in supplementary table 3 of this paper
 
 Cancer outcome data for each cancer was obtained from a variety of sources (see data availability statement in manuscript)
 
 ``` r{format_data}
 
-# load VTE exposure SNPs from supplementary table 2 of source publication
+# load VTE exposure SNPs from supplementary table 3 of source publication
 published_VTE_risk_loci <- fread('./Thibord_published_supp2.csv', skip=2)
 
 # load full VTE summary sttistics file with beta/pval/se/sample sizes (obtained from INVENT-MVP consortium)
@@ -193,7 +193,7 @@ snps_used <- do.call(rbind, snps_used) %>%
   list(snps_unavailable, snps_excluded, snps_used) %>% reduce(full_join, by = 'outcome') %>% fwrite(., 'table2.csv')
   
 ```
-To create supplementary table 1
+To create supplementary table 2
 
 ``` r{supptable1}
 supp_table1 <- harmonised_dat_steigered %>%
@@ -299,11 +299,13 @@ mr_heterogeneity <- mr_heterogeneity(
 Added following peer-review. Output is described here: https://github.com/rondolab/MR-PRESSO/issues/13
 Note that the 'sd' is actually the standard error of the mean as described here: https://github.com/rondolab/MR-PRESSO/issues/15
 
-``` r{results_MR-PRESSO}
+``` r{results_MR-PRESSO_VTE_to_cancer}
 
 # create a list of outcomes beacuse otherwise the exposure names get separated from the results when I run the mr_presso function
 
 presso_outcomes <- dat %>% distinct(outcome) %>% select(outcome) %>% unlist
+
+# NOTE this is a wrapper function from the two sample MR package which incorporates MRPRESSO. IN THE main "mr" function, it automatically only runs the results on the SNPs for which mr_keep == TRUE. This PRESSO wrapper function also does this.
 
 res_presso <- dat %>% as.data.frame %>%
     run_mr_presso(., NbDistribution = 5000, SignifThreshold = 0.05)
@@ -325,7 +327,7 @@ names(temp) <- presso_outcomes
   # add a column with the names of the exposures and outcomes
   mutate(outcome = rep(names(temp), sapply(temp, nrow)),
          exposure = 'Venous thromboembolism') %>%
-  # add odds ratio and CIs...note here they report sd which I presume means standard deviation....but do they actually mean the se of the mean?? Yes they mean standard error: see this github https://github.com/rondolab/MR-PRESSO/issues/15
+  # add odds ratio and CIs; note sd actually is standard error: see this github https://github.com/rondolab/MR-PRESSO/issues/15
   # first have to rename the columns so that the function works
   rename(b = `Causal Estimate`, se = Sd) %>%
   generate_odds_ratios() %>%
@@ -345,7 +347,7 @@ names(temp) <- presso_outcomes
 temp <- temp %>% as.matrix() %>% as.data.frame %>%
   cbind(.,presso_outcomes) %>% rename('nSNP_outliers' = V1, 'outcome' = presso_outcomes)
   
-# note there is a catch here...sometimes $`MR-PRESSO results`$`Distortion Test`$`Outliers Indices` says 'no significant outliers' that is character [1] but it will return a 1 in this column instead of a 0 if it ran the outlier test and didn;t find any outliers.To resolve this. Figure out the class of the 'outlier indices column'
+# note there is a catch here...sometimes $`MR-PRESSO results`$`Distortion Test`$`Outliers Indices` says 'no significant outliers' that is character [1] but it will return a 1 in this column instead of a 0 if it ran the outlier test and didn't find any outliers.To resolve this. Figure out the class of the 'outlier indices column'. If it is an integer this means the length(res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Outliers Indices`) will reflect the number of outlying SNPs; if it is a character this means the output was 'no significant outliers'
 temp1 <- list()
 for (i in 1:length(res_presso)) {
   temp1[[i]] <- class(res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Outliers Indices`)
@@ -359,7 +361,7 @@ temp1 <- temp1 %>% as.matrix() %>% as.data.frame %>%
   # first change the class column to a character variable rather than a logical vector and the nSNP_outliers column to a numeric variable (rather than a list)
   mutate(class = as.character(class),
          nSNP_outliers = as.numeric(nSNP_outliers))
- # I will edit the n_SNP_outliers column according to the class column later on (see combined results for supplementary tables sectoin. For now, keep it as numeric with the original values because I need it to caluculate the final number of SNPs in the MRPRESSO outlier analysis)
+ # I will edit the n_SNP_outliers column according to the class column later on (see combined results for supplementary tables section. For now, keep it as numeric with the original values because I need it to caluculate the final number of SNPs in the MRPRESSO outlier analysis)
 
 
 # I want to merge these with the PRESSO_main results (in the outlier-corrected row). so first create a column so that we know this result refers to the outlier corrected MR PRESSO result
@@ -390,7 +392,7 @@ names(temp) <- presso_outcomes
 # Now extract the MR-PRESSO distortion test (tests the difference in the causal estimates before and after outlier removal). 
 
 temp <- list()
-# extract the distortion test Pvalue results results to the list. I don't need the outlier indices - these are just the row numbers of the SNPs which were judged to be outliers and are not useful in themselves; I have chosen not to extract the distortion coefficent either as this is a relatively meaningless number as far as I can tell.
+# extract the distortion test Pvalue results results to the list. 
 for (i in 1:length(res_presso)) {
   temp[[i]] <- res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Pvalue`
 }
@@ -406,7 +408,7 @@ names(temp) <- presso_outcomes
 # add the exposure column (using the rownames)
 PRESSO_distortion_test$outcome <- row.names(PRESSO_distortion_test)
 
-# NB note that here colorectal and lung cancer return NA in the distortion test pvalue (rather than NULL). I think this is because the global MR-PRESSO test indicated possible pleiotropy (e.g. P = 0.005 for colorectal cancer) but in the outlier test there were no significant outliers. 
+# NB note that here colorectal and lung cancer return NA in the distortion test pvalue (rather than NULL). This is because the global MR-PRESSO test indicated possible pleiotropy (e.g. P = 0.005 for colorectal cancer) but in the outlier test there were no significant outliers. 
 
 # Merge all the relevant MR PRESSO results together
 PRESSO_results <- left_join(PRESSO_main_results, PRESSO_pleiotropy_result, by = c('exposure', 'outcome')) %>% left_join(., PRESSO_distortion_test, by = 'outcome') %>%
@@ -426,7 +428,7 @@ PRESSO_results <- left_join(PRESSO_main_results, PRESSO_pleiotropy_result, by = 
 
 ```
 
-Combined results from these three analyses are shown in supplementary table 2
+Combined results from these three analyses are shown in supplementary table 3
 
 ### Graphs
 
@@ -574,9 +576,9 @@ rect(0, 21, 3.0, 27, col=adjustcolor("grey60", 0.1), border=NA)
 
 #### Sensitivity analysis with no Steiger-filtering and replicated VTE SNPs
 
-A sensitvity analysis was performed using SNPs which were identified as 'known' (i.e. well replicated) in supplementary table 2 of the publication by (Thibord _et al_, 2022)[https://pubmed.ncbi.nlm.nih.gov/36154123/]
+A sensitvity analysis was performed using SNPs which were identified as 'known' (i.e. well replicated) in supplementary table 3 of the publication by (Thibord _et al_, 2022)[https://pubmed.ncbi.nlm.nih.gov/36154123/]
 
-to create supplementary figure 4 and supplementary table 3 and 4
+to create supplementary figure 4 and supplementary table 4 and 4
 ```r{sensitivity_known_VTE_SNPs_only}
 knownSNPs <- fread('./Thibord_published_supp2.csv', skip=2) %>% 
 filter(`Novel/known` == 'Known') # 39 SNPs
@@ -587,7 +589,7 @@ VTE_exp_known_only <- VTE_exp_dat %>% filter(SNP %in% knownSNPs$SNP) %>% clump_d
 # identify these SNPs in the Steiger filtered dataframe
 dat_steigered_known <- harmonised_dat_steigered %>% filter(SNP %in% VTE_known_SNPs$SNP)
 
-# these are shown in supplementary table 3 of the paper:
+# these are shown in supplementary table 4 of the paper:
 supp_table3 <- dat_steigered_known %>%
   # delete redundant columns and reorder columns
   select("SNP", "chr", "position", "exposure", "outcome", "effect_allele.exposure", "other_allele.exposure","effect_allele.outcome","other_allele.outcome", "eaf.exposure","eaf.outcome", "beta.exposure", "se.exposure", "pval.exposure", "ncase.exposure",         "ncontrol.exposure", "samplesize.exposure",  "beta.outcome", "se.outcome",    "pval.outcome", "ncase.outcome", "ncontrol.outcome", "samplesize.outcome", "units.exposure", "prevalence.exposure" ,"rsq.exposure", "units.outcome", "prevalence.outcome", "rsq.outcome", "palindromic","ambiguous",           
@@ -597,7 +599,7 @@ supp_table3 <- dat_steigered_known %>%
   mutate_at(vars( 'rsq.exposure', 'beta.exposure', 'se.exposure', 'eaf.exposure'), ~(round(., digits=4))) %>%
   arrange(., desc(samplesize.outcome), chr, position)
 
-# get the results (supplementary table 4)
+# get the results (supplementary table 5)
 MRresults <- mr(dat_steigered_known) %>% generate_odds_ratios %>% 
   mutate(fdr_pval = p.adjust(pval, method = 'fdr'))  %>%
   mutate_if(is.numeric, ~round(., 4))
@@ -822,7 +824,7 @@ harmonised_dat_steigered <- left_join(harmonised_dat, prev, by = c('exposure' = 
     mutate(mr_keep = ifelse(steiger_dir == F, FALSE, mr_keep)
 ```
 
-Supplementary table 6
+supplementary table 7
 
 ```{Supp_table6}
 supp_table6 <- left_join(harmonised_dat_steigered, coordinates, by = 'SNP') %>%
@@ -897,6 +899,7 @@ n = power$samplesize.outcome # sample size
 # calculate power to detect an odds ratio of 1.5 (for VTE for every unit increase in risk of cancer)
 b1 = log(1.5) # causal estimate required to detect
 power$power_alt_OR.1.5 <- pnorm(sqrt(n*rsq*(ratio/(1+ratio))*(1/(1+ratio)))*b1-qnorm(1-sig/2))
+```
 
 ### Run the MR-IVW and sensitivity analyses
 
@@ -925,7 +928,146 @@ mr_heterogeneity <- mr_heterogeneity(
 )
 
 ```
-Combined results from these three analyses are shown in supplementary table 7
+
+### MR-PRESSO
+
+Added following peer-review. Output is described here: https://github.com/rondolab/MR-PRESSO/issues/13
+Note that the 'sd' is actually the standard error of the mean as described here: https://github.com/rondolab/MR-PRESSO/issues/15
+Note the function doesn't work if there are fewer than <= 3 SNPs so follicular lymphoma, bladder cancer and marginal zone lymphoma need to be excluded from the analysis
+
+``` r{results_MR-PRESSO_Cancer_to_VTE}
+
+# create a list of exposures beacuse otherwise the exposure names get separated from the results when I run the mr_presso function
+presso_exposures <- dat %>% filter(exposure != 'Follicular lymphoma' & exposure != 'Bladder cancer' & exposure != 'Marginal zone lymphoma' & exposure != 'Oropharyngeal cancer') %>% distinct(exposure) %>% select(exposure) %>% unlist
+
+# NOTE this is a wrapper function from the two sample MR package which incorporates MRPRESSO. IN THE main "mr" function, it automatically only runs the results on the SNPs for which mr_keep == TRUE. This PRESSO wrapper function also does this.
+
+res_presso <- dat %>% as.data.frame %>% 
+  filter(exposure != 'Follicular lymphoma' & exposure != 'Bladder cancer' & exposure != 'Marginal zone lymphoma' & exposure != 'Oropharyngeal cancer') %>%
+    run_mr_presso(., NbDistribution = 5000, SignifThreshold = 0.05)
+
+ # assign the relevant exposure names to each result
+names(res_presso) <- presso_exposures
+
+# Extract the main MR PRESSO result
+# create an empty list
+temp <- list()
+# extract the info results results to the list
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- res_presso[[i]]$`Main MR results`
+}
+ # assign the relevant exposure names to each result
+names(temp) <- presso_exposures
+
+'PRESSO_main_results' <- rbindlist(temp, fill = T) %>%
+  # add a column with the names of the exposures and outcomes
+  mutate(exposure_name = rep(names(temp), sapply(temp, nrow)),
+         outcome = 'Venous thromboembolism') %>%
+  # add odds ratio and CIs
+  # first have to rename the columns so that the function works
+  rename(b = `Causal Estimate`, se = Sd) %>%
+  generate_odds_ratios() %>% mutate(FDR_pval = p.adjust(`P-value`, method = 'fdr')) %>%
+  # select relevant columns
+  select(exposure_name, outcome, `MR Analysis`, b, se, OR, OR_lci95, OR_uci95, `T-stat`, `P-value`, FDR_pval) %>%
+  rename(exposure = exposure_name, analysis = `MR Analysis`, pval = `P-value`)
+         
+
+# Now extract the MR-PRESSO global tests for pleiotropy 
+temp <- list()
+# extract the info results results to the list
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- res_presso[[i]]$`MR-PRESSO results`$`Global Test`
+}
+names(temp) <- presso_exposures
+
+'PRESSO_pleiotropy_result' <- rbindlist(temp, fill = T) %>% 
+    # add a column with the names of the exposures and outcomes
+  cbind(., presso_exposures) %>%
+  mutate(outcome = 'Venous thromboembolism') %>%
+  rename(pleiotropy_globaltest_pval = Pvalue,
+         exposure = presso_exposures) %>%
+  select(exposure, outcome, pleiotropy_globaltest_pval)
+
+
+# the outlier indices are just the row numbers of the SNPs which were judged to be outliers and are not useful in themselves; however for each cancer where there were outliers, I am interested in how many SNPs were excluded for the outlier-removed analysis:
+temp <- list()
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- length(res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Outliers Indices`)
+}
+names(temp) <- presso_exposures
+# convert to a dataframe with the outcome names
+temp <- temp %>% as.matrix() %>% as.data.frame %>%
+  cbind(.,presso_exposures) %>% rename('nSNP_outliers' = V1, 'exposure' = presso_exposures)
+  
+# note there is a catch here...sometimes $`MR-PRESSO results`$`Distortion Test`$`Outliers Indices` says 'no significant outliers' that is character [1] but it will return a 1 in this column instead of a 0 if it ran the outlier test and didn;t find any outliers.To resolve this. Figure out the class of the 'outlier indices column'
+temp1 <- list()
+for (i in 1:length(res_presso)) {
+  temp1[[i]] <- class(res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Outliers Indices`)
+}
+names(temp1) <- presso_exposures
+temp1 <- temp1 %>% as.matrix() %>% as.data.frame %>%
+  cbind(.,presso_exposures) %>% rename('class' = V1, 'exposure' = presso_exposures) %>%
+  # now merge with the dataframe named temp
+  left_join(temp, ., by='exposure') %>%
+  # now replace the values of the nSNP_outliers column accordingly
+  # first change the class column to a character variable rather than a logical vector and the nSNP_outliers column to a numeric variable (rather than a list)
+  mutate(class = as.character(class),
+         nSNP_outliers = as.numeric(nSNP_outliers))
+ # I will edit the n_SNP_outliers column according to the class column later on (see combined results for supplementary tables sectoin. For now, keep it as numeric with the original values because I need it to caluculate the final number of SNPs in the MRPRESSO outlier analysis)
+
+
+# I want to merge these with the PRESSO_main results (in the outlier-corrected row). so first create a column so that we know this result refers to the outlier corrected MR PRESSO result
+PRESSO_main_results <- temp1 %>%
+  mutate(outcome = 'Venous thromboembolism') %>% 
+  # create a column so that we know these are referring to the outlier corrected results
+  mutate(analysis = 'Outlier-corrected') %>%
+  # then join
+  left_join(PRESSO_main_results, ., by = c('exposure', 'outcome', 'analysis'))
+  
+
+# Now extract the MR-PRESSO distortion test (tests the difference in the causal estimates before and after outlier removal). 
+
+temp <- list()
+# extract the distortion test Pvalue results results to the list. 
+for (i in 1:length(res_presso)) {
+  temp[[i]] <- res_presso[[i]]$`MR-PRESSO results`$`Distortion Test`$`Pvalue`
+}
+names(temp) <- presso_exposures
+
+
+# some of the cancers (the ones without outliers) return 'NULL' for the distortion test. Remove these from the table
+'PRESSO_distortion_test' <- Filter(Negate(is.null), temp) %>%
+  # then convert into a df
+  cbind %>% as.data.frame %>% mutate('exposure' = row.names(.)) %>%
+  # name columns
+  setnames(., colnames(.), c('distortion_test_pval')) 
+
+# add the exposure column (using the rownames)
+PRESSO_distortion_test$exposure <- row.names(PRESSO_distortion_test)
+
+# Merge all the relevant MR PRESSO results together
+PRESSO_results <- left_join(PRESSO_main_results, PRESSO_pleiotropy_result, by = c('exposure', 'outcome')) %>% left_join(., PRESSO_distortion_test, by = 'exposure') %>%
+  # the pleiotropy global test pval and distortion test pval are getting duplicated when I merge the tables (because there are 2 rows for each cancer: one raw result and one outlier corrected result. I only need these values to show in the table once - modify this)
+  mutate(distortion_test_pval = ifelse(analysis == 'Raw', NA, distortion_test_pval),
+         pleiotropy_globaltest_pval = ifelse(analysis == 'Outlier-corrected', NA, pleiotropy_globaltest_pval)) %>%
+  # delete the columns named b and se since we are displaying the OR columns
+  select(-c(b, se))
+
+  # add rows with the names of the other cancers (the ones which could not be included in the analysis: these will have NA in all the cells)
+exposure = c('Follicular lymphoma', 'Bladder cancer', 'Marginal zone lymphoma', 'Oropharyngeal cancer') %>% as.data.frame %>% setnames(colnames(.), c('exposure')) %>% mutate(outcome = 'Venous thromboembolism')
+
+PRESSO_results <- rbind(PRESSO_results, exposure, fill=TRUE) %>% 
+  # arrange them in the same order as the other results (for easy comparison)
+  mutate(exposure = factor(exposure, levels = c( "Oropharyngeal cancer", "Kidney Cancer", "Oesophageal cancer", "Lung Cancer",    "Follicular lymphoma", "Colorectal cancer",  "Endometrial cancer",               "Melanoma",      "Pancreatic cancer",  "Prostate cancer",                 "Glioma",         "Bladder cancer",  "Marginal zone lymphoma",         "Ovarian cancer",                "DLBCL",  "Breast cancer",                 "Chronic lymphocytic leukaemia",            "Oral cancer"))) %>% arrange(exposure) %>% 
+  # round the results
+  mutate_if(is.numeric, ~round(., 3)) %>%
+  # if the distortion test pval column says 'NULL' change this to NA
+  mutate(distortion_test_pval = ifelse(distortion_test_pval == 'NULL', NA, distortion_test_pval)) %>%
+    # replace ' NULL' with NA in the nSNP_outliers column
+  mutate(nSNP_outliers = ifelse(nSNP_outliers == 'NULL', NA, nSNP_outliers))
+
+```
+Combined results from these three analyses are shown in supplementary table 8
 
 ### Graphs
 
