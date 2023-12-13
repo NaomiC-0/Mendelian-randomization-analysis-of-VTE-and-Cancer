@@ -26,6 +26,7 @@ generate_odds_ratios <- function(res) {
   return(res)
 
 ```
+Please note: The MR weighted mode weighted median and MR PRESSO calculations all involve bootstrapping to estimate standard errors. Therefore it is required to set.seed() in order to achieve identical results with the same data. This was not included with the original run of the scripts. 
 
 ## MR analysis of genetic risk of VTE (exposure) and 18 cancers (outcomes)
 
