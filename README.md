@@ -39,7 +39,7 @@ Cancer outcome data for each cancer was obtained from a variety of sources (see 
 ``` r{format_data}
 
 # load VTE exposure SNPs from supplementary table 3 of source publication
-published_VTE_risk_loci <- fread('./Thibord_published_supp2.csv', skip=2)
+published_VTE_risk_loci <- fread('./Thibord_published_supp.csv', skip=2)
 
 # load full VTE summary sttistics file with beta/pval/se/sample sizes (obtained from INVENT-MVP consortium)
 VTE_exp_dat <- fread('path/to/VTE/GWAS_summ_stats') %>%
